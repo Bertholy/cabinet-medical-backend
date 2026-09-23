@@ -8,6 +8,7 @@ import com.cabinet.cabinet.exception.CreneauIndisponibleException;
 import com.cabinet.cabinet.exception.RendezVousIntrouvableException;
 import com.cabinet.cabinet.exception.StatutInvalideException;
 import com.cabinet.cabinet.repository.RendezVousRepository;
+import com.cabinet.cabinet.sms.SmsService;
 import lombok.RequiredArgsConstructor;
 import org.springframework.stereotype.Service;
 import org.springframework.transaction.annotation.Transactional;
@@ -22,6 +23,10 @@ import java.util.List;
 public class RendezVousService {
 
     private final RendezVousRepository rendezVousRepository;
+    private final SmsService smsService;
+
+    // ============ NUMÉRO DU MÉDECIN ============
+    private static final String NUMERO_MEDECIN = "+261343498888";
 
     // ============ CRÉNEAUX HORAIRES ============
     private static final List<LocalTime> CRENEAUX = List.of(
@@ -64,7 +69,13 @@ public class RendezVousService {
         // 4. Sauvegarder
         RendezVous saved = rendezVousRepository.save(rdv);
 
-        // 5. Convertir en DTO de réponse
+        // 5. Envoyer SMS au médecin (notification)
+        String message = "Nouveau RDV : " + saved.getNomClient()
+                + " le " + saved.getDateRdv()
+                + " à " + saved.getHeureRdv();
+        smsService.envoyerSms(NUMERO_MEDECIN, message);
+
+        // 6. Convertir en DTO de réponse
         return toResponseDTO(saved);
     }
 
@@ -104,6 +115,13 @@ public class RendezVousService {
 
         rdv.setStatut(StatutRDV.CONFIRME);
         RendezVous updated = rendezVousRepository.save(rdv);
+
+        // Envoyer SMS au client (confirmation)
+        String message = "Votre RDV du " + updated.getDateRdv()
+                + " à " + updated.getHeureRdv()
+                + " est CONFIRMÉ. Cabinet médical.";
+        smsService.envoyerSms(updated.getTelephoneClient(), message);
+
         return toResponseDTO(updated);
     }
 
@@ -119,6 +137,13 @@ public class RendezVousService {
 
         rdv.setStatut(StatutRDV.ANNULE);
         RendezVous updated = rendezVousRepository.save(rdv);
+
+        // Envoyer SMS au client (annulation)
+        String message = "Votre RDV du " + updated.getDateRdv()
+                + " à " + updated.getHeureRdv()
+                + " a été ANNULÉ. Cabinet médical.";
+        smsService.envoyerSms(updated.getTelephoneClient(), message);
+
         return toResponseDTO(updated);
     }
 
