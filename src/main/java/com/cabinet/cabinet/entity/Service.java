@@ -1,9 +1,11 @@
 package com.cabinet.cabinet.entity;
 
+import com.cabinet.cabinet.util.TextRepairListener;
 import jakarta.persistence.*;
 import lombok.*;
 
 @Entity
+@EntityListeners(TextRepairListener.class)
 @Table(name = "service")
 @Data
 @NoArgsConstructor
@@ -22,4 +24,7 @@ public class Service {
 
     @Column(length = 50)
     private String duree;
+
+    @Column(name = "image_url", length = 500)
+    private String imageUrl;
 }

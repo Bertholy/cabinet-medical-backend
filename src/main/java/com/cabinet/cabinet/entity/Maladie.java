@@ -1,12 +1,16 @@
 package com.cabinet.cabinet.entity;
 
+import com.cabinet.cabinet.util.TextRepairListener;
 import jakarta.persistence.*;
+import jakarta.validation.constraints.NotBlank;
+import jakarta.validation.constraints.Size;
 import lombok.*;
 
 import java.util.ArrayList;
 import java.util.List;
 
 @Entity
+@EntityListeners(TextRepairListener.class)
 @Table(name = "maladie")
 @Data
 @NoArgsConstructor
@@ -17,6 +21,8 @@ public class Maladie {
     @GeneratedValue(strategy = GenerationType.IDENTITY)
     private Long id;
 
+    @NotBlank(message = "Le nom de la maladie est obligatoire")
+    @Size(max = 100, message = "Le nom ne peut pas dépasser 100 caractères")
     @Column(nullable = false, length = 100)
     private String nom;
 

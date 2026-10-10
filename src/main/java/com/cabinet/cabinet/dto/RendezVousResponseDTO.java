@@ -14,8 +14,15 @@ public class RendezVousResponseDTO {
     private String nomClient;
     private Integer ageClient;
     private String telephoneClient;
+    private String motif;
+    private Long serviceId;
+    private String serviceNom;
+    private Long praticienId;
+    private String praticienNom;
+    private String clientAccessToken;
     private LocalDate dateRdv;
     private LocalTime heureRdv;
     private StatutRDV statut;
     private LocalDateTime dateCreation;
+    private LocalDateTime deletedAt;
 }

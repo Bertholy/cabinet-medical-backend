@@ -1,10 +1,12 @@
 package com.cabinet.cabinet.entity;
 
+import com.cabinet.cabinet.util.TextRepairListener;
 import com.cabinet.cabinet.enums.Role;
 import jakarta.persistence.*;
 import lombok.*;
 
 @Entity
+@EntityListeners(TextRepairListener.class)
 @Table(name = "utilisateur")
 @Data
 @NoArgsConstructor
@@ -30,4 +32,7 @@ public class Utilisateur {
     @Enumerated(EnumType.STRING)
     @Column(nullable = false, length = 20)
     private Role role;
+
+    @Column(name = "photo_url", length = 500)
+    private String photoUrl;
 }
