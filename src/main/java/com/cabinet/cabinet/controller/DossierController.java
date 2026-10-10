@@ -31,6 +31,7 @@ import java.util.Map;
  * Dossier patient : informations médicales durables + comptes rendus de consultation.
  * Accès limité au personnel soignant (SecurityConfig : /api/dossiers/**) ; la secrétaire n'y a pas accès.
  */
+@SuppressWarnings("null") // avertissements de l'éditeur sur des références de méthode : aucun risque réel
 @RestController
 @RequestMapping("/api/dossiers")
 @RequiredArgsConstructor

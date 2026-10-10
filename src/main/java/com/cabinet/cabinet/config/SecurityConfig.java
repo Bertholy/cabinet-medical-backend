@@ -52,6 +52,7 @@ public class SecurityConfig {
                 .requestMatchers(HttpMethod.POST, "/api/services/**").hasRole("SUPER_ADMIN")
                 .requestMatchers(HttpMethod.PUT, "/api/services/**").hasRole("SUPER_ADMIN")
                 .requestMatchers(HttpMethod.DELETE, "/api/services/**").hasRole("SUPER_ADMIN")
+                .requestMatchers("/api/messagerie/**").hasAnyRole("SUPER_ADMIN", "MEDECIN", "SAGE_FEMME", "SECRETAIRE", "INFIRMIERE")
                 .requestMatchers("/api/profile/**").hasAnyRole("SUPER_ADMIN", "MEDECIN", "SAGE_FEMME", "SECRETAIRE", "INFIRMIERE")
                 // Fiches médicales : lecture réservée au personnel soignant, écriture au médecin / super admin.
                 .requestMatchers(HttpMethod.GET, "/api/maladies/**").hasAnyRole("SUPER_ADMIN", "MEDECIN", "SAGE_FEMME", "INFIRMIERE")
@@ -83,7 +84,9 @@ public class SecurityConfig {
                 .requestMatchers(HttpMethod.GET, "/api/rdv/statut/**", "/api/rendez-vous/statut/**").hasAnyRole("SUPER_ADMIN", "MEDECIN")
                 .requestMatchers(HttpMethod.PUT, "/api/rdv/*/praticien", "/api/rendez-vous/*/praticien").hasRole("SUPER_ADMIN")
                 .requestMatchers("/api/notifications", "/api/notifications/**").hasAnyRole("SUPER_ADMIN", "MEDECIN", "SAGE_FEMME", "SECRETAIRE", "INFIRMIERE")
-                .requestMatchers(HttpMethod.PUT, "/api/rdv/*/confirmer", "/api/rendez-vous/*/confirmer", "/api/rdv/*/terminer", "/api/rendez-vous/*/terminer").hasAnyRole("SUPER_ADMIN", "MEDECIN", "SAGE_FEMME", "INFIRMIERE")
+                .requestMatchers(HttpMethod.PUT, "/api/rdv/*/confirmer", "/api/rendez-vous/*/confirmer").hasRole("SUPER_ADMIN")
+                .requestMatchers(HttpMethod.PUT, "/api/rdv/*/accepter", "/api/rendez-vous/*/accepter").hasAnyRole("MEDECIN", "SAGE_FEMME", "INFIRMIERE")
+                .requestMatchers(HttpMethod.PUT, "/api/rdv/*/terminer", "/api/rendez-vous/*/terminer").hasAnyRole("SUPER_ADMIN", "MEDECIN", "SAGE_FEMME", "INFIRMIERE")
                 .requestMatchers("/api/rdv/**", "/api/rendez-vous/**").hasAnyRole("SUPER_ADMIN", "MEDECIN", "SAGE_FEMME", "SECRETAIRE", "INFIRMIERE")
 
                 // ============ TOUT LE RESTE ============

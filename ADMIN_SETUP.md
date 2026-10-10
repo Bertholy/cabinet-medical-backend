@@ -45,3 +45,11 @@ Les comptes hérités du rôle `INFIRMIERE` restent compatibles et sont traités
 | Statistiques | oui | oui | non | oui |
 | Export des rendez-vous (CSV, PDF) | oui | oui | oui | oui |
 | Comptes, planning, journal, site, couleurs | oui | non | non | non |
+
+## Autres fonctions
+
+- **Sauvegardes** (super administrateur) : sauvegarde automatique quotidienne de la base et des photos, lancement manuel et téléchargement.
+- **Mot de passe oublié** : lien par e-mail valable 30 minutes (voir DEPLOY.md §6 bis) ; le super administrateur est notifié et peut réinitialiser dans « Comptes et accès ».
+- **Messagerie** (tout le personnel) : conversations privées entre collègues, icône avec compteur dans l'en-tête.
+- **Suivi maternité** (médecin, sage-femme, super administrateur) : dans le dossier d'une patiente, ouverture de grossesse (terme calculé), calendrier et consultations prénatales avec alertes, carnet de vaccination des enfants ; la page « Suivi maternité » liste les rappels (consultations en retard, terme proche, vaccins à faire). Les calendriers sont des repères à valider par le médecin.
+- **Langue** : le site public est disponible en français et en malgache (sélecteur FR / MG). En mode édition, le super administrateur corrige les textes dans la langue affichée. Les espaces du personnel restent en français.

@@ -27,7 +27,7 @@ public class ImageStorageService {
 
     public String storeImage(String section, MultipartFile file) {
         if (file == null || file.isEmpty()) throw new ResponseStatusException(HttpStatus.BAD_REQUEST, "Choisissez une image.");
-        if (file.getSize() > 5L * 1024 * 1024) throw new ResponseStatusException(HttpStatus.PAYLOAD_TOO_LARGE, "L’image ne doit pas dépasser 5 Mo.");
+        if (file.getSize() > 5L * 1024 * 1024) throw new ResponseStatusException(HttpStatus.CONTENT_TOO_LARGE, "L’image ne doit pas dépasser 5 Mo.");
 
         String contentType = file.getContentType();
         String extension = "image/png".equalsIgnoreCase(contentType) ? ".png"

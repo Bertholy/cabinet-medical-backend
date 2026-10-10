@@ -22,14 +22,16 @@ import java.util.Map;
  * modification réservée au super administrateur (/api/admin/** dans SecurityConfig).
  */
 @RestController
+@RequestMapping("/api")
 @RequiredArgsConstructor
+@SuppressWarnings("null") // avertissements de l'éditeur sur des références de méthode : aucun risque réel
 public class PlanningController {
     private static final ZoneId ZONE = ZoneId.of("Indian/Antananarivo");
     private final PlanningService planning;
     private final RendezVousRepository rendezVous;
     private final AuditService audit;
 
-    @GetMapping("/api/planning")
+    @GetMapping("/planning")
     public Map<String, Object> lire() {
         PlanningDTO p = planning.lire();
         Map<String, Object> body = new LinkedHashMap<>();
@@ -41,7 +43,7 @@ public class PlanningController {
     }
 
     /** Pourquoi une journée n'a-t-elle aucun créneau ? (fermeture exceptionnelle, jour non travaillé…) */
-    @GetMapping("/api/planning/jour/{date}")
+    @GetMapping("/planning/jour/{date}")
     public Map<String, Object> jour(@PathVariable LocalDate date) {
         var ferme = planning.jourFerme(date);
         Map<String, Object> body = new LinkedHashMap<>();
@@ -52,14 +54,14 @@ public class PlanningController {
         return body;
     }
 
-    @PutMapping("/api/admin/planning")
+    @PutMapping("/admin/planning")
     public PlanningDTO enregistrer(@Valid @RequestBody PlanningDTO dto) {
         PlanningDTO saved = planning.enregistrer(dto);
         audit.log("PLANNING_MODIFIE", "Planning", 1, "Créneaux de " + saved.dureeCreneauMinutes() + " min, " + saved.capaciteParCreneau() + " RDV simultané(s)");
         return saved;
     }
 
-    @PostMapping("/api/admin/jours-fermes")
+    @PostMapping("/admin/jours-fermes")
     public ResponseEntity<Map<String, Object>> fermer(@Valid @RequestBody JourFermeDTO dto) {
         JourFermeDTO saved = planning.fermer(dto.date(), dto.motif());
         long impactes = rendezVous.countActifsLe(dto.date());
@@ -70,7 +72,7 @@ public class PlanningController {
         return ResponseEntity.status(HttpStatus.CREATED).body(body);
     }
 
-    @DeleteMapping("/api/admin/jours-fermes/{id}")
+    @DeleteMapping("/admin/jours-fermes/{id}")
     public ResponseEntity<Void> rouvrir(@PathVariable Long id) {
         LocalDate date = planning.rouvrir(id);
         audit.log("JOUR_ROUVERT", "JourFerme", id, String.valueOf(date));

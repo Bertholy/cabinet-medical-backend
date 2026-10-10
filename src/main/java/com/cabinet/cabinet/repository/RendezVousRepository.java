@@ -71,6 +71,10 @@ public interface RendezVousRepository extends JpaRepository<RendezVous, Long> {
     long countBySupprimeFalseAndDateRdvBetween(@Param("debut") LocalDate debut, @Param("fin") LocalDate fin);
     @Query("select count(r) from RendezVous r where (r.supprime = false or r.supprime is null) and r.statut = :statut and r.dateRdv between :debut and :fin")
     long countBySupprimeFalseAndStatutAndDateRdvBetween(@Param("statut") StatutRDV statut, @Param("debut") LocalDate debut, @Param("fin") LocalDate fin);
+    /** Rendez-vous confiés à une personne du personnel (acceptés ou non), du plus ancien au plus récent, à partir d'une date. */
+    @Query("select r from RendezVous r where (r.supprime = false or r.supprime is null) and r.praticien.id = :praticienId and r.dateRdv >= :depuis order by r.dateRdv asc, r.heureRdv asc")
+    List<RendezVous> findAttribuesA(@Param("praticienId") Long praticienId, @Param("depuis") LocalDate depuis);
+
     @Query("select count(r) from RendezVous r where (r.supprime = false or r.supprime is null) and (r.praticien.id = :praticienId or r.praticien is null) and r.dateRdv between :debut and :fin")
     long countBySupprimeFalseAndPraticienIdAndDateRdvBetween(@Param("praticienId") Long praticienId, @Param("debut") LocalDate debut, @Param("fin") LocalDate fin);
     @Query("select count(r) from RendezVous r where (r.supprime = false or r.supprime is null) and (r.praticien.id = :praticienId or r.praticien is null) and r.statut = :statut and r.dateRdv between :debut and :fin")

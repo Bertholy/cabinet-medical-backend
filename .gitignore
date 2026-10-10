@@ -31,3 +31,10 @@ build/
 
 ### VS Code ###
 .vscode/
+
+### CASAFAMI : réglages privés, données et sauvegardes (ne jamais publier) ###
+/config/application.properties
+/config/*.local.properties
+.env
+/uploads/
+/backups/

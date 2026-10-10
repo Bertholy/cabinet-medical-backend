@@ -27,7 +27,6 @@ class EncodageTests {
 
     // Ã n'existe pas en français ; Â n'est cassé que suivi d'un signe latin-1 (« Â » + espace insécable, « Â« »…) ; « Âge » est correct.
     private static final java.util.regex.Pattern CASSE = java.util.regex.Pattern.compile("[\\u00C3\\uFFFD]|\\u00C2[\\u00A0-\\u00BF]|\\u00E2\\u20AC");
-    private static final String C3 = String.valueOf((char) 0x00C3), C2 = String.valueOf((char) 0x00C2), E2 = String.valueOf((char) 0x00E2), FFFD = String.valueOf((char) 0xFFFD);
 
     @Test
     void aucunFichierDuProjetNeContientDeCaractereCasse() throws IOException {

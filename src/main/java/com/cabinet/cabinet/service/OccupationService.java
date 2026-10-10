@@ -22,6 +22,7 @@ import java.util.TreeSet;
  * Occupation du personnel par créneau pour une journée : qui est libre, qui est pris et par quel patient.
  * Sert au super administrateur pour décider qui prend un rendez-vous au moment de le confirmer.
  */
+@SuppressWarnings("null") // avertissements de l'éditeur sur des références de méthode : aucun risque réel
 @Service
 @RequiredArgsConstructor
 public class OccupationService {

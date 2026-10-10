@@ -33,6 +33,7 @@ import java.util.Map;
 import java.io.IOException;
 import java.nio.charset.StandardCharsets;
 
+@SuppressWarnings("null") // avertissements de l'éditeur sur des références de méthode : aucun risque réel
 @RestController
 @RequestMapping({"/api/rdv", "/api/rendez-vous"})
 @RequiredArgsConstructor
@@ -49,7 +50,7 @@ public class RendezVousController {
     public ResponseEntity<RendezVousResponseDTO> creer(@Valid @RequestBody RendezVousRequestDTO dto, Authentication authentication) {
         // Le patient ne choisit jamais qui le reçoit : seule la création faite par le super administrateur peut désigner une personne.
         if (!hasRole(authentication, "SUPER_ADMIN")) dto.setPraticienId(null);
-        RendezVousResponseDTO response = rendezVousService.creerRendezVous(dto);
+        RendezVousResponseDTO response = rendezVousService.creerRendezVous(dto, origineDe(authentication), hasRole(authentication, "SUPER_ADMIN"));
         return ResponseEntity.status(HttpStatus.CREATED).body(response);
     }
 
@@ -123,7 +124,7 @@ public class RendezVousController {
 
     @PutMapping("/{id}")
     public ResponseEntity<RendezVousResponseDTO> modifier(@PathVariable Long id, @Valid @RequestBody RendezVousRequestDTO dto, Authentication authentication) {
-        return ResponseEntity.ok(rendezVousService.modifierRendezVous(id, dto, hasRole(authentication, "SUPER_ADMIN")));
+        return ResponseEntity.ok(rendezVousService.modifierRendezVous(id, dto, hasRole(authentication, "SUPER_ADMIN"), origineDe(authentication)));
     }
 
     @DeleteMapping("/{id}")
@@ -193,6 +194,12 @@ public class RendezVousController {
         return hasAnyRole(authentication, "SUPER_ADMIN", "SECRETAIRE", "MEDECIN", "SAGE_FEMME", "INFIRMIERE");
     }
 
+    /** « Le patient » pour un visiteur du site, sinon « Nom (rôle) » de la personne connectée. */
+    private String origineDe(Authentication authentication) {
+        if (authentication == null || !authentication.isAuthenticated() || authentication instanceof org.springframework.security.authentication.AnonymousAuthenticationToken) return "Le patient";
+        return utilisateurRepository.findByEmailIgnoreCase(authentication.getName()).map(com.cabinet.cabinet.service.NotificationService::origine).orElse("Le cabinet");
+    }
+
     private boolean hasRole(Authentication authentication, String role) {
         return hasAnyRole(authentication, role);
     }
@@ -214,10 +221,27 @@ public class RendezVousController {
         return user == null ? null : new UtilisateurResumeDTO(user.getNom(), user.getRole());
     }
 
-    // ============ CONFIRMER UN RDV (médecin) ============
+    // ============ MES PATIENTS (personne connectée) ET DÉTAIL D'UN RENDEZ-VOUS ============
+    @GetMapping("/mes-patients")
+    public ResponseEntity<List<RendezVousResponseDTO>> mesPatients(Authentication authentication) {
+        return ResponseEntity.ok(rendezVousService.getMesPatients(authentication.getName()));
+    }
+
+    @GetMapping("/{id}")
+    public ResponseEntity<RendezVousResponseDTO> detail(@PathVariable Long id, Authentication authentication) {
+        return ResponseEntity.ok(rendezVousService.getRendezVousPourPersonnel(id, authentication.getName()));
+    }
+
+    // ============ CONFIRMATION FINALE (super administrateur, une fois que la personne attribuée a accepté) ============
     @PutMapping("/{id}/confirmer")
-    public ResponseEntity<RendezVousResponseDTO> confirmer(@PathVariable Long id, @RequestBody(required = false) Map<String, Object> corps, Authentication authentication) {
-        return ResponseEntity.ok(rendezVousService.confirmerRendezVous(id, praticienIdDe(corps), authentication.getName()));
+    public ResponseEntity<RendezVousResponseDTO> confirmer(@PathVariable Long id, Authentication authentication) {
+        return ResponseEntity.ok(rendezVousService.confirmerRendezVous(id, authentication.getName()));
+    }
+
+    // ============ ACCEPTER UN RDV ATTRIBUÉ (la personne concernée) ============
+    @PutMapping("/{id}/accepter")
+    public ResponseEntity<RendezVousResponseDTO> accepter(@PathVariable Long id, Authentication authentication) {
+        return ResponseEntity.ok(rendezVousService.accepterRendezVous(id, authentication.getName()));
     }
 
     // ============ ATTRIBUER / CHANGER LA PERSONNE QUI PREND LE RDV (super administrateur) ============
@@ -245,6 +269,6 @@ public class RendezVousController {
     public ResponseEntity<RendezVousResponseDTO> annuler(@PathVariable Long id,
             @RequestHeader(value = "X-RDV-Access-Token", required = false) String accessToken,
             Authentication authentication) {
-        return ResponseEntity.ok(rendezVousService.annulerRendezVous(id, accessToken, isInternal(authentication)));
+        return ResponseEntity.ok(rendezVousService.annulerRendezVous(id, accessToken, isInternal(authentication), origineDe(authentication), hasRole(authentication, "SUPER_ADMIN")));
     }
 }

@@ -1,0 +1,97 @@
+{
+  "properties": [
+    {
+      "name": "jwt.secret",
+      "type": "java.lang.String",
+      "description": "Clé de signature des connexions (Base64, 256 bits minimum). Obligatoire : CASAFAMI_JWT_SECRET."
+    },
+    {
+      "name": "jwt.expiration",
+      "type": "java.lang.Long",
+      "description": "Durée de validité d'une connexion, en millisecondes.",
+      "defaultValue": 86400000
+    },
+    {
+      "name": "sms.mode",
+      "type": "java.lang.String",
+      "description": "simulation (SMS écrits dans les journaux) ou twilio (envoi réel).",
+      "defaultValue": "simulation"
+    },
+    {
+      "name": "sms.twilio.account-sid",
+      "type": "java.lang.String",
+      "description": "Identifiant du compte Twilio."
+    },
+    {
+      "name": "sms.twilio.auth-token",
+      "type": "java.lang.String",
+      "description": "Jeton d'authentification Twilio."
+    },
+    {
+      "name": "sms.twilio.from",
+      "type": "java.lang.String",
+      "description": "Numéro expéditeur Twilio."
+    },
+    {
+      "name": "app.upload-dir",
+      "type": "java.lang.String",
+      "description": "Dossier des photos téléversées (services et profils).",
+      "defaultValue": "uploads"
+    },
+    {
+      "name": "app.rappels.actifs",
+      "type": "java.lang.Boolean",
+      "description": "Envoie les rappels de rendez-vous la veille à 18 h.",
+      "defaultValue": true
+    },
+    {
+      "name": "app.cors.origins",
+      "type": "java.lang.String",
+      "description": "Adresses du site autorisées à appeler l'API, séparées par des virgules."
+    },
+    {
+      "name": "app.notification.numero-medecin",
+      "type": "java.lang.String",
+      "description": "Numéro qui reçoit un SMS à chaque nouveau rendez-vous."
+    },
+    {
+      "name": "app.backup.actif",
+      "type": "java.lang.Boolean",
+      "description": "Sauvegardes automatiques de la base et des photos.",
+      "defaultValue": true
+    },
+    {
+      "name": "app.backup.dossier",
+      "type": "java.lang.String",
+      "description": "Dossier des sauvegardes (vide : « backups » à la racine du projet)."
+    },
+    {
+      "name": "app.backup.garder",
+      "type": "java.lang.Integer",
+      "description": "Nombre de sauvegardes conservées.",
+      "defaultValue": 14
+    },
+    {
+      "name": "app.backup.pg-dump",
+      "type": "java.lang.String",
+      "description": "Chemin de pg_dump (vide : détection automatique)."
+    },
+    {
+      "name": "app.mail.from",
+      "type": "java.lang.String",
+      "description": "Adresse d'expédition des e-mails (mot de passe oublié)."
+    },
+    {
+      "name": "app.frontend-url",
+      "type": "java.lang.String",
+      "description": "Adresse publique du site, utilisée dans les liens envoyés par e-mail.",
+      "defaultValue": "http://localhost:5173"
+    },
+    {
+      "name": "app.mdp-oublie.synchrone",
+      "type": "java.lang.Boolean",
+      "description": "Traite la demande de mot de passe oublié sans attendre (tests).",
+      "defaultValue": false
+    }
+  ]
+}

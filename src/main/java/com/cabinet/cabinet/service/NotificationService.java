@@ -19,8 +19,27 @@ public class NotificationService {
     private static final ZoneId ZONE = ZoneId.of("Indian/Antananarivo");
     private final NotificationRepository notifications;
 
+    /** « Marie Rasoa (sage-femme) » : qui a fait l'action, affiché dans la notification. */
+    public static String origine(Utilisateur u) {
+        if (u == null) return "Le cabinet";
+        String role = switch (u.getRole()) {
+            case SUPER_ADMIN -> "super administrateur";
+            case MEDECIN -> "médecin";
+            case SAGE_FEMME -> "sage-femme";
+            case SECRETAIRE -> "secrétaire";
+            case INFIRMIERE -> "infirmière";
+        };
+        return u.getNom() + " (" + role + ")";
+    }
+
     @Transactional
     public void notifier(Utilisateur destinataire, String type, String titre, RendezVous rdv, String phrase, String creePar) {
+        notifier(destinataire, type, titre, rdv, phrase, creePar, null);
+    }
+
+    /** @param lien page ouverte au clic ; null = le rendez-vous sur le tableau de bord du super administrateur, ou « Mes patients » pour les autres. */
+    @Transactional
+    public void notifier(Utilisateur destinataire, String type, String titre, RendezVous rdv, String phrase, String creePar, String lien) {
         if (destinataire == null) return;
         Notification n = new Notification();
         n.setDestinataire(destinataire);
@@ -29,8 +48,25 @@ public class NotificationService {
         n.setMessage(limiter(phrase + " — " + rdv.getNomClient() + ", le " + rdv.getDateRdv() + " à " + String.valueOf(rdv.getHeureRdv()).substring(0, 5)
                 + (rdv.getMotif() == null ? "" : " (" + resume(rdv.getMotif()) + ")"), 500));
         n.setRendezVousId(rdv.getId());
+        // Un clic sur la notification ouvre la page où le rendez-vous se traite : tableau de bord du super administrateur, « Mes patients » pour les autres.
+        n.setLien(lien != null ? lien : (destinataire.getRole() == com.cabinet.cabinet.enums.Role.SUPER_ADMIN ? "/admin/dashboard?rdv=" + rdv.getId() : "/espace/mes-patients?rdv=" + rdv.getId()));
         n.setCreeLe(LocalDateTime.now(ZONE));
         n.setCreePar(creePar);
+        notifications.save(n);
+    }
+
+    /** Notification qui ne concerne pas un rendez-vous (sauvegarde, mot de passe oublié…) ; « lien » = page ouverte au clic. */
+    @Transactional
+    public void informer(Utilisateur destinataire, String type, String titre, String message, String creePar, String lien) {
+        if (destinataire == null) return;
+        Notification n = new Notification();
+        n.setDestinataire(destinataire);
+        n.setType(type);
+        n.setTitre(limiter(titre, 150));
+        n.setMessage(limiter(message, 500));
+        n.setCreeLe(LocalDateTime.now(ZONE));
+        n.setCreePar(creePar);
+        n.setLien(lien);
         notifications.save(n);
     }
 

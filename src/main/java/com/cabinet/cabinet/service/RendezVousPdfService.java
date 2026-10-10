@@ -38,7 +38,7 @@ public class RendezVousPdfService {
                 }
                 write(stream, PDType1Font.HELVETICA_BOLD, 22, 130, 785, AppConstants.APP_NAME);
                 write(stream, PDType1Font.HELVETICA, 11, 130, 765, "Cabinet m\u00e9dical");
-                stream.setStrokingColor(15, 118, 110);
+                stream.setStrokingColor(new java.awt.Color(15, 118, 110));
                 stream.setLineWidth(2);
                 stream.moveTo(54, 735);
                 stream.lineTo(541, 735);

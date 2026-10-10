@@ -32,6 +32,8 @@ public class AdminUtilisateurController {
     private final RendezVousRepository rendezVousRepository;
     private final AuditService audit;
     private final com.cabinet.cabinet.repository.NotificationRepository notificationRepository;
+    private final com.cabinet.cabinet.repository.ReinitialisationMotDePasseRepository reinitialisations;
+    private final com.cabinet.cabinet.repository.MessageRepository messageRepository;
 
     public record ModificationCompte(@NotBlank(message = "Le nom est obligatoire") @Size(max = 100) String nom,
                                      @NotBlank(message = "L'adresse e-mail est obligatoire") @Email(message = "Adresse e-mail invalide") @Size(max = 150) String email,
@@ -120,6 +122,8 @@ public class AdminUtilisateurController {
         rendezVousRepository.detachPraticien(id);
         rendezVousRepository.detachDeletedBy(id);
         notificationRepository.supprimerDuDestinataire(id);
+        reinitialisations.supprimerDe(id);
+        messageRepository.supprimerDe(id);
         users.delete(user);
         audit.log("COMPTE_SUPPRIME", "Utilisateur", id, user.getEmail());
         return ResponseEntity.noContent().build();

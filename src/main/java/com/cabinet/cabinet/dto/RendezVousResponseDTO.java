@@ -19,6 +19,9 @@ public class RendezVousResponseDTO {
     private String serviceNom;
     private Long praticienId;
     private String praticienNom;
+    /** La personne attribuée a accepté le rendez-vous. */
+    private boolean personnelConfirme;
+    private LocalDateTime personnelConfirmeLe;
     private String clientAccessToken;
     private LocalDate dateRdv;
     private LocalTime heureRdv;

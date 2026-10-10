@@ -40,6 +40,7 @@ import java.security.MessageDigest;
 import java.security.SecureRandom;
 import java.nio.charset.StandardCharsets;
 
+@SuppressWarnings("null") // avertissements de l'éditeur sur des références de méthode : aucun risque réel
 @Service
 @RequiredArgsConstructor
 public class RendezVousService {
@@ -60,8 +61,18 @@ public class RendezVousService {
     private String numeroMedecin;
 
     // ============ CRÉER UN RDV ============
+    /** Réservation faite par un patient (site public) : les super administrateurs sont prévenus pour attribuer le rendez-vous. */
     @Transactional
     public RendezVousResponseDTO creerRendezVous(RendezVousRequestDTO dto) {
+        return creerRendezVous(dto, "Le patient", false);
+    }
+
+    /**
+     * @param origine        qui a créé le rendez-vous (« Le patient », « Le cabinet »), affiché dans la notification
+     * @param parSuperAdmin  true si le super administrateur l'a lui-même saisi : il n'a pas besoin d'être prévenu
+     */
+    @Transactional
+    public RendezVousResponseDTO creerRendezVous(RendezVousRequestDTO dto, String origine, boolean parSuperAdmin) {
         // Les réservations d'une même journée sont traitées l'une après l'autre : pas de dépassement de capacité en cas de clics simultanés.
         verrouillerJour(dto.getDateRdv());
 
@@ -90,6 +101,10 @@ public class RendezVousService {
         audit.log("RDV_CREE", "RendezVous", saved.getId(), saved.getNomClient() + " — " + saved.getDateRdv() + " " + saved.getHeureRdv());
         if (saved.getPraticien() != null) {
             notifications.notifier(saved.getPraticien(), "RDV_ATTRIBUE", "Nouveau rendez-vous attribué", saved, "Un rendez-vous vous est confié", "Le super administrateur");
+        }
+        // Chaque super administrateur reçoit une notification : un clic ouvre ce rendez-vous sur le tableau de bord, où l'on choisit la personne.
+        if (!parSuperAdmin) {
+            prevenirLesSuperAdmins(saved, "RDV_NOUVEAU", "Nouvelle demande de rendez-vous", saved.getPraticien() == null ? "Nouvelle demande à attribuer" : "Nouvelle demande", origine, null);
         }
 
         // 5. Envoyer SMS au médecin (notification)
@@ -170,6 +185,12 @@ public class RendezVousService {
 
     @Transactional
     public RendezVousResponseDTO modifierRendezVous(Long id, RendezVousRequestDTO dto, boolean peutAttribuer) {
+        return modifierRendezVous(id, dto, peutAttribuer, "Le cabinet");
+    }
+
+    /** @param origine qui modifie (affiché dans la notification envoyée aux super administrateurs quand ce n'est pas l'un d'eux) */
+    @Transactional
+    public RendezVousResponseDTO modifierRendezVous(Long id, RendezVousRequestDTO dto, boolean peutAttribuer, String origine) {
         verrouillerJour(dto.getDateRdv());
         RendezVous rdv = rendezVousRepository.findByIdAndSupprimeFalse(id)
                 .orElseThrow(() -> new RendezVousIntrouvableException("Rendez-vous introuvable avec l'id : " + id));
@@ -187,6 +208,7 @@ public class RendezVousService {
             verifierDisponibilite(dto.getDateRdv(), dto.getHeureRdv(), dto.getPraticienId(), id);
         }
         appliquerChamps(rdv, dto);
+        if (praticienChange || (creneauChange && rdv.getStatut() == StatutRDV.EN_ATTENTE)) rdv.setPersonnelConfirmeLe(null);
         try {
             RendezVousResponseDTO saved = toResponseDTO(rendezVousRepository.saveAndFlush(rdv));
             audit.log("RDV_MODIFIE", "RendezVous", id, rdv.getNomClient() + " — " + rdv.getDateRdv() + " " + rdv.getHeureRdv());
@@ -195,6 +217,10 @@ public class RendezVousService {
                 notifications.notifier(ancienPraticienEntite, "RDV_RETIRE", "Rendez-vous retiré", rdv, "Ce rendez-vous ne vous est plus attribué", "Le super administrateur");
             } else if (creneauChange) {
                 notifications.notifier(rdv.getPraticien(), "RDV_DEPLACE", "Rendez-vous déplacé", rdv, "Ce rendez-vous (prévu le " + ancienneDate.substring(0, 16) + ") a été déplacé", "Le cabinet");
+            }
+            // le super administrateur est prévenu des modifications faites par les autres (il a déjà vu les siennes)
+            if (!peutAttribuer) {
+                prevenirLesSuperAdmins(rdv, "RDV_MODIFIE", "Rendez-vous modifié", creneauChange ? "Rendez-vous déplacé (il était prévu le " + ancienneDate.substring(0, 16) + ")" : "Rendez-vous modifié", origine, null);
             }
             return saved;
         } catch (DataIntegrityViolationException ex) {
@@ -206,11 +232,15 @@ public class RendezVousService {
     public void mettreEnCorbeille(Long id, String emailUtilisateur) {
         RendezVous rdv = rendezVousRepository.findByIdAndSupprimeFalse(id)
                 .orElseThrow(() -> new RendezVousIntrouvableException("Rendez-vous introuvable avec l'id : " + id));
+        Utilisateur acteur = utilisateurRepository.findByEmail(emailUtilisateur)
+                .orElseThrow(() -> new ResponseStatusException(HttpStatus.UNAUTHORIZED, "Utilisateur non authentifié."));
         rdv.setSupprime(true);
         rdv.setDeletedAt(LocalDateTime.now(CABINET_ZONE));
-        rdv.setDeletedBy(utilisateurRepository.findByEmail(emailUtilisateur)
-                .orElseThrow(() -> new ResponseStatusException(HttpStatus.UNAUTHORIZED, "Utilisateur non authentifié.")));
+        rdv.setDeletedBy(acteur);
         rendezVousRepository.save(rdv);
+        if (acteur.getRole() != Role.SUPER_ADMIN) {
+            prevenirLesSuperAdmins(rdv, "RDV_CORBEILLE", "Rendez-vous mis à la corbeille", "Rendez-vous mis à la corbeille (récupérable depuis la corbeille)", NotificationService.origine(acteur), "/corbeille");
+        }
         audit.log("RDV_CORBEILLE", "RendezVous", id, rdv.getNomClient() + " — " + rdv.getDateRdv() + " " + rdv.getHeureRdv());
     }
 
@@ -337,6 +367,12 @@ public class RendezVousService {
     private RendezVousResponseDTO toClientLookupDTO(RendezVous rdv) {
         RendezVousResponseDTO dto = toResponseDTO(rdv);
         dto.setMotif(null);
+        dto.setPersonnelConfirme(false);
+        dto.setPersonnelConfirmeLe(null);
+        if (rdv.getStatut() != StatutRDV.CONFIRME && rdv.getStatut() != StatutRDV.TERMINE) {
+            dto.setPraticienId(null);
+            dto.setPraticienNom(null);
+        }
         return dto;
     }
 
@@ -349,36 +385,59 @@ public class RendezVousService {
                 .toList();
     }
 
-    // ============ CONFIRMER UN RDV (le super administrateur décide qui le prend) ============
+    // ============ « MES PATIENTS » : les rendez-vous confiés à la personne connectée ============
+    /** Rendez-vous attribués à la personne connectée (des 6 derniers mois à l'avenir) ; elle voit aussi ceux qu'elle n'a pas encore acceptés. */
+    @Transactional(readOnly = true)
+    public List<RendezVousResponseDTO> getMesPatients(String emailActeur) {
+        Utilisateur acteur = acteur(emailActeur);
+        return rendezVousRepository.findAttribuesA(acteur.getId(), LocalDate.now(CABINET_ZONE).minusMonths(6)).stream().map(this::toResponseDTO).toList();
+    }
+
+    /** Un rendez-vous précis (page ouverte depuis une notification). Un praticien ne voit que les siens ou ceux qui ne sont pas encore attribués. */
+    @Transactional(readOnly = true)
+    public RendezVousResponseDTO getRendezVousPourPersonnel(Long id, String emailActeur) {
+        RendezVous rdv = rendezVousRepository.findByIdAndSupprimeFalse(id)
+                .orElseThrow(() -> new RendezVousIntrouvableException("Rendez-vous introuvable avec l'id : " + id));
+        Utilisateur acteur = acteur(emailActeur);
+        boolean praticien = ROLES_PRATICIENS.contains(acteur.getRole());
+        if (praticien && rdv.getPraticien() != null && !rdv.getPraticien().getId().equals(acteur.getId())) {
+            throw new org.springframework.security.access.AccessDeniedException("Ce rendez-vous est confié à une autre personne.");
+        }
+        return toResponseDTO(rdv);
+    }
+
+    // ============ CONFIRMER UN RDV : deux confirmations ============
     /**
-     * Confirme un rendez-vous en attente.
-     * - Super administrateur : il choisit la personne qui prendra le rendez-vous (praticienId). Elle doit être libre à ce créneau
-     *   (voir OccupationService) et elle reçoit une notification.
-     * - Médecin / sage-femme : peut seulement confirmer un rendez-vous qui lui a déjà été attribué.
+     * Étape 1 — le super administrateur attribue le rendez-vous à une personne (voir attribuerRendezVous) ; elle est notifiée.
+     * Étape 2 — cette personne l'accepte (accepterRendezVous) ; le super administrateur est notifié.
+     * Étape 3 — le super administrateur confirme le rendez-vous (cette méthode) : le patient reçoit son SMS.
      */
     @Transactional
-    public RendezVousResponseDTO confirmerRendezVous(Long id, Long praticienId, String emailActeur) {
+    public RendezVousResponseDTO confirmerRendezVous(Long id, String emailActeur) {
         RendezVous rdv = rendezVousRepository.findByIdAndSupprimeFalse(id)
                 .orElseThrow(() -> new RendezVousIntrouvableException("Rendez-vous introuvable avec l'id : " + id));
         if (rdv.getStatut() != StatutRDV.EN_ATTENTE) {
             throw new StatutInvalideException("Seul un RDV en attente peut être confirmé");
         }
         Utilisateur acteur = acteur(emailActeur);
+        if (acteur.getRole() != Role.SUPER_ADMIN) {
+            throw new org.springframework.security.access.AccessDeniedException("Seul le super administrateur confirme définitivement un rendez-vous.");
+        }
         verrouillerJour(rdv.getDateRdv());
-        if (acteur.getRole() == Role.SUPER_ADMIN) {
-            Long cible = praticienId != null ? praticienId : (rdv.getPraticien() == null ? null : rdv.getPraticien().getId());
-            if (cible == null && !utilisateurRepository.findByRoleIn(ROLES_PRATICIENS).isEmpty()) {
-                throw new ResponseStatusException(HttpStatus.BAD_REQUEST, "Choisissez la personne qui prendra ce rendez-vous.");
+        if (rdv.getPraticien() == null) {
+            if (!utilisateurRepository.findByRoleIn(ROLES_PRATICIENS).isEmpty()) {
+                throw new ResponseStatusException(HttpStatus.BAD_REQUEST, "Attribuez d'abord ce rendez-vous à une personne du personnel.");
             }
-            if (cible != null) attribuer(rdv, cible, acteur);
-        } else {
-            verifierQueLeRdvMEstAttribue(rdv, acteur);
+        } else if (rdv.getPersonnelConfirmeLe() == null) {
+            throw new ResponseStatusException(HttpStatus.CONFLICT, rdv.getPraticien().getNom()
+                    + " n'a pas encore accepté ce rendez-vous. Attendez sa confirmation ou choisissez une autre personne.");
         }
 
         rdv.setStatut(StatutRDV.CONFIRME);
         RendezVous updated = rendezVousRepository.save(rdv);
         audit.log("RDV_CONFIRME", "RendezVous", id, rdv.getNomClient() + " — " + rdv.getDateRdv() + " " + rdv.getHeureRdv()
                 + (rdv.getPraticien() == null ? "" : " — avec " + rdv.getPraticien().getNom()));
+        notifications.notifier(rdv.getPraticien(), "RDV_CONFIRME", "Rendez-vous confirmé", rdv, "Le cabinet a confirmé ce rendez-vous", acteur.getNom());
 
         // Envoyer SMS au client (confirmation)
         String message = "Votre RDV du " + updated.getDateRdv()
@@ -387,6 +446,26 @@ public class RendezVousService {
         smsService.envoyerSms(updated.getTelephoneClient(), message);
 
         return toResponseDTO(updated);
+    }
+
+    /** La personne à qui le rendez-vous a été attribué l'accepte : tous les super administrateurs en sont prévenus. */
+    @Transactional
+    public RendezVousResponseDTO accepterRendezVous(Long id, String emailActeur) {
+        RendezVous rdv = rendezVousRepository.findByIdAndSupprimeFalse(id)
+                .orElseThrow(() -> new RendezVousIntrouvableException("Rendez-vous introuvable avec l'id : " + id));
+        Utilisateur acteur = acteur(emailActeur);
+        verifierQueLeRdvMEstAttribue(rdv, acteur);
+        if (rdv.getStatut() != StatutRDV.EN_ATTENTE && rdv.getStatut() != StatutRDV.CONFIRME) {
+            throw new StatutInvalideException("Ce rendez-vous ne peut plus être accepté");
+        }
+        if (rdv.getPersonnelConfirmeLe() != null) return toResponseDTO(rdv);
+        rdv.setPersonnelConfirmeLe(LocalDateTime.now(CABINET_ZONE));
+        RendezVousResponseDTO saved = toResponseDTO(rendezVousRepository.save(rdv));
+        audit.log("RDV_ACCEPTE_PAR_PERSONNEL", "RendezVous", id, rdv.getNomClient() + " — accepté par " + acteur.getNom());
+        for (Utilisateur admin : utilisateurRepository.findByRoleIn(List.of(Role.SUPER_ADMIN))) {
+            notifications.notifier(admin, "RDV_ACCEPTE", "Attribution acceptée", rdv, acteur.getNom() + " a accepté ce rendez-vous", acteur.getNom());
+        }
+        return saved;
     }
 
     /** Attribue (ou retire, si praticienId est null) un rendez-vous à un membre du personnel : réservé au super administrateur. */
@@ -403,6 +482,7 @@ public class RendezVousService {
             Utilisateur ancien = rdv.getPraticien();
             if (ancien != null) {
                 rdv.setPraticien(null);
+                rdv.setPersonnelConfirmeLe(null);
                 notifications.notifier(ancien, "RDV_RETIRE", "Rendez-vous retiré", rdv, "Ce rendez-vous ne vous est plus attribué", acteur.getNom());
                 audit.log("RDV_ATTRIBUTION_RETIREE", "RendezVous", id, rdv.getNomClient() + " — plus attribué à " + ancien.getNom());
             }
@@ -410,6 +490,13 @@ public class RendezVousService {
             attribuer(rdv, praticienId, acteur);
         }
         return toResponseDTO(rendezVousRepository.save(rdv));
+    }
+
+    /** Chaque super administrateur reçoit la notification : il suit ainsi tout ce qui se passe sur les rendez-vous, quelle que soit la personne qui agit. */
+    private void prevenirLesSuperAdmins(RendezVous rdv, String type, String titre, String phrase, String origine, String lien) {
+        for (Utilisateur admin : utilisateurRepository.findByRoleIn(List.of(Role.SUPER_ADMIN))) {
+            notifications.notifier(admin, type, titre, rdv, phrase, origine, lien);
+        }
     }
 
     private static final List<Role> ROLES_PRATICIENS = List.of(Role.MEDECIN, Role.SAGE_FEMME, Role.INFIRMIERE);
@@ -435,6 +522,7 @@ public class RendezVousService {
             throw new CreneauIndisponibleException(nouveau.getNom() + " a déjà un rendez-vous à cet horaire. Choisissez une personne libre.");
         }
         rdv.setPraticien(nouveau);
+        rdv.setPersonnelConfirmeLe(null);
         notifications.notifier(nouveau, "RDV_ATTRIBUE", "Nouveau rendez-vous attribué", rdv, "Un rendez-vous vous est confié", acteur.getNom());
         if (ancien != null) notifications.notifier(ancien, "RDV_RETIRE", "Rendez-vous retiré", rdv, "Ce rendez-vous ne vous est plus attribué", acteur.getNom());
         audit.log("RDV_ATTRIBUE", "RendezVous", rdv.getId(), rdv.getNomClient() + " → " + nouveau.getNom() + (ancien == null ? "" : " (avant : " + ancien.getNom() + ")"));
@@ -463,6 +551,12 @@ public class RendezVousService {
      */
     @Transactional
     public RendezVousResponseDTO annulerRendezVous(Long id, String token, boolean utilisateurInterne) {
+        return annulerRendezVous(id, token, utilisateurInterne, utilisateurInterne ? "Le cabinet" : "Le patient", false);
+    }
+
+    /** @param origine qui annule ; @param parSuperAdmin true si c'est un super administrateur (il n'a pas besoin d'être prévenu) */
+    @Transactional
+    public RendezVousResponseDTO annulerRendezVous(Long id, String token, boolean utilisateurInterne, String origine, boolean parSuperAdmin) {
         RendezVous rdv = rendezVousRepository.findByIdAndSupprimeFalse(id)
                 .orElseThrow(() -> new RendezVousIntrouvableException("Rendez-vous introuvable avec l'id : " + id));
         verifierAcces(rdv, token, utilisateurInterne);
@@ -476,6 +570,9 @@ public class RendezVousService {
         RendezVous updated = rendezVousRepository.save(rdv);
         audit.log("RDV_ANNULE", "RendezVous", id, rdv.getNomClient() + (utilisateurInterne ? "" : " (annulé par le patient)"));
         notifications.notifier(rdv.getPraticien(), "RDV_ANNULE", "Rendez-vous annulé", rdv, utilisateurInterne ? "Ce rendez-vous a été annulé par le cabinet" : "Le patient a annulé ce rendez-vous", utilisateurInterne ? "Le cabinet" : "Le patient");
+        if (!parSuperAdmin) {
+            prevenirLesSuperAdmins(rdv, "RDV_ANNULE", "Rendez-vous annulé", utilisateurInterne ? "Rendez-vous annulé par l'équipe" : "Le patient a annulé son rendez-vous", origine, null);
+        }
 
         // Envoyer SMS au client (annulation)
         String message = "Votre RDV du " + updated.getDateRdv()
@@ -624,6 +721,8 @@ public class RendezVousService {
         dto.setServiceNom(rdv.getService() == null ? null : rdv.getService().getNom());
         dto.setPraticienId(rdv.getPraticien() == null ? null : rdv.getPraticien().getId());
         dto.setPraticienNom(rdv.getPraticien() == null ? null : rdv.getPraticien().getNom());
+        dto.setPersonnelConfirme(rdv.getPersonnelConfirmeLe() != null);
+        dto.setPersonnelConfirmeLe(rdv.getPersonnelConfirmeLe());
         dto.setDateRdv(rdv.getDateRdv());
         dto.setHeureRdv(rdv.getHeureRdv());
         dto.setStatut(rdv.getStatut());

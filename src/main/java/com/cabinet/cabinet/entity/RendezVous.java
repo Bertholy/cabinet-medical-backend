@@ -69,6 +69,10 @@ public class RendezVous {
     @JoinColumn(name = "deleted_by")
     private Utilisateur deletedBy;
 
+    /** Moment où la personne attribuée a accepté le rendez-vous (null tant qu'elle ne l'a pas fait). Remis à zéro si on change de personne. */
+    @Column(name = "personnel_confirme_le")
+    private LocalDateTime personnelConfirmeLe;
+
     @Column(name = "rappel_envoye", columnDefinition = "boolean default false")
     private Boolean rappelEnvoye = false;
 

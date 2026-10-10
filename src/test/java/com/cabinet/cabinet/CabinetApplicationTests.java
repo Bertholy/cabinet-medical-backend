@@ -284,10 +284,17 @@ class CabinetApplicationTests {
         mvc.perform(put("/api/rdv/" + id + "/confirmer").header("Authorization", secretaireToken)).andExpect(status().isForbidden());
         // un médecin ne peut pas s'attribuer lui-même un rendez-vous : c'est le super administrateur qui décide
         mvc.perform(put("/api/rdv/" + id + "/confirmer").header("Authorization", medecinToken)).andExpect(status().isForbidden());
-        mvc.perform(put("/api/rdv/" + id + "/confirmer").header("Authorization", adminToken)).andExpect(status().isBadRequest()); // il faut choisir la personne
-        mvc.perform(put("/api/rdv/" + id + "/confirmer").header("Authorization", adminToken).contentType(MediaType.APPLICATION_JSON)
-                .content("{\"praticienId\":" + idMedecin + "}")).andExpect(status().isOk()).andExpect(jsonPath("$.statut").value("CONFIRME"))
-                .andExpect(jsonPath("$.praticienId").value(idMedecin));
+        mvc.perform(put("/api/rdv/" + id + "/confirmer").header("Authorization", adminToken)).andExpect(status().isBadRequest()); // il faut d'abord l'attribuer
+        mvc.perform(put("/api/rdv/" + id + "/praticien").header("Authorization", adminToken).contentType(MediaType.APPLICATION_JSON)
+                .content("{\"praticienId\":" + idMedecin + "}")).andExpect(status().isOk()).andExpect(jsonPath("$.personnelConfirme").value(false));
+        // première confirmation : la personne attribuée ; tant qu'elle n'a pas accepté, le super administrateur ne peut pas confirmer
+        mvc.perform(put("/api/rdv/" + id + "/confirmer").header("Authorization", adminToken)).andExpect(status().isConflict());
+        mvc.perform(put("/api/rdv/" + id + "/accepter").header("Authorization", secretaireToken)).andExpect(status().isForbidden());
+        mvc.perform(put("/api/rdv/" + id + "/accepter").header("Authorization", adminToken)).andExpect(status().isForbidden());
+        mvc.perform(put("/api/rdv/" + id + "/accepter").header("Authorization", medecinToken)).andExpect(status().isOk()).andExpect(jsonPath("$.personnelConfirme").value(true));
+        // seconde confirmation : le super administrateur
+        mvc.perform(put("/api/rdv/" + id + "/confirmer").header("Authorization", adminToken)).andExpect(status().isOk())
+                .andExpect(jsonPath("$.statut").value("CONFIRME")).andExpect(jsonPath("$.praticienId").value(idMedecin));
         mvc.perform(put("/api/rdv/" + id + "/terminer").header("Authorization", medecinToken))
                 .andExpect(status().isOk()).andExpect(jsonPath("$.statut").value("TERMINE"));
     }

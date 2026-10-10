@@ -28,6 +28,7 @@ import java.util.Optional;
  * Par défaut le cabinet reçoit les 7 jours de la semaine, week-end compris (8h–11h et 14h–17h) ;
  * le super administrateur peut fermer certains jours depuis « Horaires et congés ».
  */
+@SuppressWarnings("null") // avertissements de l'éditeur sur des références de méthode : aucun risque réel
 @Service
 @RequiredArgsConstructor
 public class PlanningService {
@@ -134,7 +135,7 @@ public class PlanningService {
         if ((debut == null) != (fin == null)) {
             throw new ResponseStatusException(HttpStatus.BAD_REQUEST, "La plage " + nom + " doit avoir une heure de début et une heure de fin.");
         }
-        if (debut != null && !fin.isAfter(debut)) {
+        if (debut != null && fin != null && !fin.isAfter(debut)) {
             throw new ResponseStatusException(HttpStatus.BAD_REQUEST, "La fin de la plage " + nom + " doit être après son début.");
         }
     }

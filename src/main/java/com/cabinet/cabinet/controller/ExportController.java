@@ -33,6 +33,7 @@ import java.util.Set;
  * Export de la liste des rendez-vous d'une période (CSV lisible par Excel, ou PDF).
  * Les médecins et sages-femmes n'exportent que leurs rendez-vous et ceux pas encore attribués, comme sur leur tableau de bord.
  */
+@SuppressWarnings("null") // avertissements de l'éditeur sur des références de méthode : aucun risque réel
 @RestController
 @RequestMapping("/api/export")
 @RequiredArgsConstructor

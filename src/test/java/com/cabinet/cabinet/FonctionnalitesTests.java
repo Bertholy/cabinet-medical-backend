@@ -443,7 +443,7 @@ class FonctionnalitesTests {
     @Test
     void journalDAuditTraceLesActionsEtResteReserveAuSuperAdmin() throws Exception {
         String id = extraire(creer(jourOuvre(1), "08:00:00", "Audit Test", "0341111111"), "id");
-        mvc.perform(put("/api/rdv/" + id + "/confirmer").header("Authorization", admin).contentType(MediaType.APPLICATION_JSON).content("{\"praticienId\":" + idDe("test.medecin@casafami.test") + "}")).andExpect(status().isOk());
+        confirmerAvec(id, "test.medecin@casafami.test", 200);
         mvc.perform(get("/api/admin/journal").param("action", "RDV_CONFIRME").param("q", "Audit Test").header("Authorization", admin))
                 .andExpect(status().isOk()).andExpect(jsonPath("$.contenu[0].acteurEmail").value("test.admin@casafami.test"))
                 .andExpect(jsonPath("$.contenu[0].action").value("RDV_CONFIRME"));
@@ -509,8 +509,16 @@ class FonctionnalitesTests {
         return users.findByEmailIgnoreCase(email).orElseThrow().getId();
     }
 
+    /** Parcours complet : attribution par le super administrateur, acceptation par la personne, confirmation finale (si l'attribution est refusée, on s'arrête là). */
     private void confirmerAvec(String id, String emailPraticien, int statutAttendu) throws Exception {
-        mvc.perform(put("/api/rdv/" + id + "/confirmer").header("Authorization", admin).contentType(MediaType.APPLICATION_JSON)
+        attribuerA(id, emailPraticien, statutAttendu);
+        if (statutAttendu != 200) return;
+        mvc.perform(put("/api/rdv/" + id + "/accepter").header("Authorization", emailPraticien.contains("medecin") ? medecin : sageFemme)).andExpect(status().isOk());
+        mvc.perform(put("/api/rdv/" + id + "/confirmer").header("Authorization", admin)).andExpect(status().isOk());
+    }
+
+    private void attribuerA(String id, String emailPraticien, int statutAttendu) throws Exception {
+        mvc.perform(put("/api/rdv/" + id + "/praticien").header("Authorization", admin).contentType(MediaType.APPLICATION_JSON)
                 .content("{\"praticienId\":" + idDe(emailPraticien) + "}")).andExpect(status().is(statutAttendu));
     }
 
@@ -618,7 +626,7 @@ class FonctionnalitesTests {
     @Test
     void lePatientNeChoisitPlusSonPraticien() throws Exception {
         Long idMedecin = idDe("test.medecin@casafami.test");
-        MvcResult r = mvc.perform(post("/api/rdv").contentType(MediaType.APPLICATION_JSON).content(rdvJson(jourOuvre(1), "09:00:00", "Patient Libre", "0341111111", idMedecin)))
+        mvc.perform(post("/api/rdv").contentType(MediaType.APPLICATION_JSON).content(rdvJson(jourOuvre(1), "09:00:00", "Patient Libre", "0341111111", idMedecin)))
                 .andExpect(status().isCreated()).andReturn();
         assertEquals(1, rdvs.count());
         assertNull(rdvs.findAll().get(0).getPraticien(), "un patient ne peut pas désigner son praticien");
@@ -629,7 +637,7 @@ class FonctionnalitesTests {
     @Test
     void superAdminChoisitQuiPrendLeRdv_laPersonneRecoitUneNotification() throws Exception {
         String id = extraire(creer(jourOuvre(1), "09:00:00", "Notif Patiente", "0341111111"), "id");
-        confirmerAvec(id, "test.medecin@casafami.test", 200);
+        attribuerA(id, "test.medecin@casafami.test", 200);
         mvc.perform(get("/api/notifications").header("Authorization", medecin)).andExpect(status().isOk())
                 .andExpect(jsonPath("$.nonLues").value(1))
                 .andExpect(jsonPath("$.notifications[0].type").value("RDV_ATTRIBUE"))
@@ -689,7 +697,6 @@ class FonctionnalitesTests {
         mvc.perform(put("/api/rdv/" + id + "/praticien").header("Authorization", medecin).contentType(MediaType.APPLICATION_JSON)
                 .content("{\"praticienId\":" + idDe("test.medecin@casafami.test") + "}")).andExpect(status().isForbidden());
         // annulation par le patient : la sage-femme est prévenue
-        String token = null;
         mvc.perform(put("/api/rdv/" + id + "/annuler").header("Authorization", secretaire)).andExpect(status().isOk());
         mvc.perform(get("/api/notifications").header("Authorization", sageFemme)).andExpect(jsonPath("$.notifications[0].type").value("RDV_ANNULE"));
         // un rendez-vous annulé ne se réattribue plus
@@ -698,12 +705,173 @@ class FonctionnalitesTests {
     }
 
     @Test
-    void lePraticienConfirmeSeulementSesRdv_etSecretaireNeChangePasLaPersonne() throws Exception {
+    void nouvelleDemande_previentLeSuperAdmin_etUnClicOuvreLaDemandePourL_attribuer() throws Exception {
+        LocalDate jour = jourOuvre(1);
+        // réservation faite par un patient sur le site public
+        String id = extraire(creer(jour, "08:30:00", "Nouvelle Patiente", "0341111111"), "id");
+        mvc.perform(get("/api/notifications").header("Authorization", admin)).andExpect(status().isOk())
+                .andExpect(jsonPath("$.nonLues").value(1))
+                .andExpect(jsonPath("$.notifications[0].type").value("RDV_NOUVEAU"))
+                .andExpect(jsonPath("$.notifications[0].titre").value("Nouvelle demande de rendez-vous"))
+                .andExpect(jsonPath("$.notifications[0].message").value(containsString("à attribuer")))
+                .andExpect(jsonPath("$.notifications[0].message").value(containsString("Nouvelle Patiente")))
+                .andExpect(jsonPath("$.notifications[0].creePar").value("Le patient"))
+                .andExpect(jsonPath("$.notifications[0].lien").value("/admin/dashboard?rdv=" + id));
+        // les autres membres du personnel ne sont pas dérangés : c'est le super administrateur qui attribue
+        for (String jeton : new String[]{medecin, sageFemme, secretaire}) {
+            mvc.perform(get("/api/notifications").header("Authorization", jeton)).andExpect(jsonPath("$.nonLues").value(0));
+        }
+        // le lien mène à une demande que le super administrateur peut ouvrir, puis attribuer
+        mvc.perform(get("/api/rdv/" + id).header("Authorization", admin)).andExpect(status().isOk()).andExpect(jsonPath("$.praticienId").isEmpty());
+        attribuerA(id, "test.medecin@casafami.test", 200);
+
+        // un rendez-vous saisi par la secrétaire prévient aussi le super administrateur
+        mvc.perform(post("/api/rdv").header("Authorization", secretaire).contentType(MediaType.APPLICATION_JSON).content(rdvJson(jour, "09:00:00", "Saisie Secretaire", "0342222222", null)))
+                .andExpect(status().isCreated());
+        mvc.perform(get("/api/notifications").header("Authorization", admin)).andExpect(jsonPath("$.nonLues").value(2))
+                .andExpect(jsonPath("$.notifications[0].creePar").value("Test SECRETAIRE (secrétaire)"));
+        // …mais pas celui qu'il saisit lui-même
+        mvc.perform(post("/api/rdv").header("Authorization", admin).contentType(MediaType.APPLICATION_JSON).content(rdvJson(jour, "09:30:00", "Saisie Admin", "0343333333", null)))
+                .andExpect(status().isCreated());
+        mvc.perform(get("/api/notifications").header("Authorization", admin)).andExpect(jsonPath("$.nonLues").value(2));
+    }
+
+    @Test
+    void leSuperAdminEstPreveuDeTout_creationModificationAnnulationCorbeille_parLePatientEtParLePersonnel() throws Exception {
+        LocalDate jour = jourOuvre(1);
+        String[] types = {"RDV_NOUVEAU", "RDV_MODIFIE", "RDV_ANNULE", "RDV_CORBEILLE"};
+
+        // création : le patient, la secrétaire, un médecin et une sage-femme
+        creer(jour, "08:00:00", "Client Public", "0341000001");
+        mvc.perform(get("/api/notifications").header("Authorization", admin)).andExpect(jsonPath("$.notifications[0].type").value("RDV_NOUVEAU"))
+                .andExpect(jsonPath("$.notifications[0].creePar").value("Le patient"));
+        String[][] createurs = {{"secretaire", "secrétaire", "08:30:00"}, {"medecin", "médecin", "09:00:00"}, {"sageFemme", "sage-femme", "09:30:00"}};
+        for (String[] c : createurs) {
+            String jeton = c[0].equals("secretaire") ? secretaire : (c[0].equals("medecin") ? medecin : sageFemme);
+            mvc.perform(post("/api/rdv").header("Authorization", jeton).contentType(MediaType.APPLICATION_JSON).content(rdvJson(jour, c[2], "Client " + c[1], "03420000" + c[2].substring(0, 2), null)))
+                    .andExpect(status().isCreated());
+            mvc.perform(get("/api/notifications").header("Authorization", admin)).andExpect(jsonPath("$.notifications[0].type").value("RDV_NOUVEAU"))
+                    .andExpect(jsonPath("$.notifications[0].creePar").value(containsString("(" + c[1] + ")")))
+                    .andExpect(jsonPath("$.notifications[0].message").value(containsString("Client " + c[1])));
+        }
+        mvc.perform(get("/api/notifications").header("Authorization", admin)).andExpect(jsonPath("$.nonLues").value(4));
+
+        // modification par la secrétaire : déplacement du rendez-vous créé par le patient
+        MvcResult lePatient = creer(jour, "10:00:00", "Client A Modifier", "0341000002");
+        String id = extraire(lePatient, "id");
+        String jeton = extraire(lePatient, "clientAccessToken");
+        mvc.perform(put("/api/rdv/" + id).header("Authorization", secretaire).contentType(MediaType.APPLICATION_JSON).content(rdvJson(jour, "10:30:00", "Client A Modifier", "0341000002", null)))
+                .andExpect(status().isOk());
+        mvc.perform(get("/api/notifications").header("Authorization", admin)).andExpect(jsonPath("$.notifications[0].type").value("RDV_MODIFIE"))
+                .andExpect(jsonPath("$.notifications[0].message").value(containsString("déplacé")))
+                .andExpect(jsonPath("$.notifications[0].lien").value("/admin/dashboard?rdv=" + id));
+
+        // annulation par le patient, puis par l'équipe
+        mvc.perform(put("/api/rdv/" + id + "/annuler").header("X-RDV-Access-Token", jeton)).andExpect(status().isOk());
+        mvc.perform(get("/api/notifications").header("Authorization", admin)).andExpect(jsonPath("$.notifications[0].type").value("RDV_ANNULE"))
+                .andExpect(jsonPath("$.notifications[0].message").value(containsString("Le patient a annulé")))
+                .andExpect(jsonPath("$.notifications[0].creePar").value("Le patient"));
+        String autre = extraire(creer(jour, "14:00:00", "Client Annule Par Equipe", "0341000003"), "id");
+        mvc.perform(put("/api/rdv/" + autre + "/annuler").header("Authorization", secretaire)).andExpect(status().isOk());
+        mvc.perform(get("/api/notifications").header("Authorization", admin)).andExpect(jsonPath("$.notifications[0].type").value("RDV_ANNULE"))
+                .andExpect(jsonPath("$.notifications[0].message").value(containsString("annulé par l'équipe")))
+                .andExpect(jsonPath("$.notifications[0].creePar").value(containsString("(secrétaire)")));
+
+        // mise à la corbeille par un membre du personnel : le lien ouvre la corbeille
+        String aSupprimer = extraire(creer(jour, "14:30:00", "Client Corbeille", "0341000004"), "id");
+        mvc.perform(delete("/api/rdv/" + aSupprimer).header("Authorization", secretaire)).andExpect(status().isNoContent());
+        mvc.perform(get("/api/notifications").header("Authorization", admin)).andExpect(jsonPath("$.notifications[0].type").value("RDV_CORBEILLE"))
+                .andExpect(jsonPath("$.notifications[0].lien").value("/corbeille")).andExpect(jsonPath("$.notifications[0].creePar").value(containsString("(secrétaire)")));
+
+        // les gestes du super administrateur lui-même ne le notifient pas
+        long avant = Long.parseLong(extraire(mvc.perform(get("/api/notifications").header("Authorization", admin)).andReturn(), "nonLues"));
+        mvc.perform(put("/api/rdv/" + autre).header("Authorization", admin).contentType(MediaType.APPLICATION_JSON).content(rdvJson(jour, "14:00:00", "Client Annule Par Equipe", "0341000003", null))).andExpect(status().isOk());
+        String proprio = extraire(creer(jour, "10:00:00", "Client Admin Annule", "0341000005"), "id");
+        long apresCreation = Long.parseLong(extraire(mvc.perform(get("/api/notifications").header("Authorization", admin)).andReturn(), "nonLues"));
+        mvc.perform(put("/api/rdv/" + proprio + "/annuler").header("Authorization", admin)).andExpect(status().isOk());
+        mvc.perform(delete("/api/rdv/" + proprio).header("Authorization", admin)).andExpect(status().isNoContent());
+        long apres = Long.parseLong(extraire(mvc.perform(get("/api/notifications").header("Authorization", admin)).andReturn(), "nonLues"));
+        org.junit.jupiter.api.Assertions.assertEquals(avant + 1, apresCreation, "seule la demande du patient prévient le super administrateur");
+        org.junit.jupiter.api.Assertions.assertEquals(apresCreation, apres, "annuler ou supprimer lui-même ne le notifie pas");
+        // les autres membres du personnel ne reçoivent pas ces notifications de suivi
+        for (String t : types) mvc.perform(get("/api/notifications").header("Authorization", medecin)).andExpect(jsonPath("$.notifications[?(@.type=='" + t + "')]").isEmpty());
+    }
+
+    @Test
+    void mesPatients_listeLesRdvAttribues_detailProtege_etLesNotificationsOuvrentLaBonnePage() throws Exception {
+        LocalDate jour = jourOuvre(1);
+        String premier = extraire(creer(jour, "09:00:00", "Patient Du Medecin", "0341111111"), "id");
+        String second = extraire(creer(jour, "09:30:00", "Patient De La Sage-femme", "0342222222"), "id");
+        String libre = extraire(creer(jour, "10:30:00", "Patient Non Attribue", "0343333333"), "id");
+        attribuerA(premier, "test.medecin@casafami.test", 200);
+        attribuerA(second, "test.sf@casafami.test", 200);
+
+        // chacun ne voit que ses rendez-vous ; ceux qu'il n'a pas encore acceptés sont marqués comme tels
+        mvc.perform(get("/api/rdv/mes-patients").header("Authorization", medecin)).andExpect(status().isOk())
+                .andExpect(jsonPath("$.length()").value(1)).andExpect(jsonPath("$[0].nomClient").value("Patient Du Medecin"))
+                .andExpect(jsonPath("$[0].personnelConfirme").value(false)).andExpect(jsonPath("$[0].heureRdv").value("09:00:00"));
+        mvc.perform(get("/api/rdv/mes-patients").header("Authorization", sageFemme)).andExpect(jsonPath("$.length()").value(1))
+                .andExpect(jsonPath("$[0].nomClient").value("Patient De La Sage-femme"));
+        mvc.perform(put("/api/rdv/" + premier + "/accepter").header("Authorization", medecin)).andExpect(status().isOk());
+        mvc.perform(get("/api/rdv/mes-patients").header("Authorization", medecin)).andExpect(jsonPath("$[0].personnelConfirme").value(true));
+        mvc.perform(get("/api/rdv/mes-patients").header("Authorization", admin)).andExpect(jsonPath("$.length()").value(0));
+        mvc.perform(get("/api/rdv/mes-patients")).andExpect(status().isUnauthorized());
+
+        // détail d'un rendez-vous : le sien ou un rendez-vous encore libre, jamais celui d'un collègue
+        mvc.perform(get("/api/rdv/" + premier).header("Authorization", medecin)).andExpect(status().isOk()).andExpect(jsonPath("$.nomClient").value("Patient Du Medecin"));
+        mvc.perform(get("/api/rdv/" + libre).header("Authorization", medecin)).andExpect(status().isOk());
+        mvc.perform(get("/api/rdv/" + second).header("Authorization", medecin)).andExpect(status().isForbidden());
+        mvc.perform(get("/api/rdv/" + second).header("Authorization", admin)).andExpect(status().isOk());
+        mvc.perform(get("/api/rdv/" + second).header("Authorization", secretaire)).andExpect(status().isOk());
+        mvc.perform(get("/api/rdv/999999").header("Authorization", admin)).andExpect(status().isNotFound());
+        mvc.perform(get("/api/rdv/" + premier)).andExpect(status().isUnauthorized());
+
+        // un clic sur la notification ouvre la page où l'on traite le rendez-vous
+        mvc.perform(get("/api/notifications").header("Authorization", medecin)).andExpect(jsonPath("$.notifications[0].type").value("RDV_ATTRIBUE"))
+                .andExpect(jsonPath("$.notifications[0].lien").value("/espace/mes-patients?rdv=" + premier));
+        mvc.perform(get("/api/notifications").header("Authorization", admin)).andExpect(jsonPath("$.notifications[0].type").value("RDV_ACCEPTE"))
+                .andExpect(jsonPath("$.notifications[0].lien").value("/admin/dashboard?rdv=" + premier));
+    }
+
+    @Test
+    void deuxConfirmations_lePersonnelAccepte_puisLeSuperAdminConfirme() throws Exception {
+        String id = extraire(creer(jourOuvre(1), "09:30:00", "Double Confirmation", "0341111111"), "id");
+        attribuerA(id, "test.medecin@casafami.test", 200);
+        // seule la demande du patient a prévenu le super administrateur (l'attribution est son propre geste)
+        mvc.perform(get("/api/notifications").header("Authorization", admin)).andExpect(jsonPath("$.nonLues").value(1))
+                .andExpect(jsonPath("$.notifications[0].type").value("RDV_NOUVEAU"));
+        // le patient ne voit aucun nom tant que le cabinet n'a pas confirmé
+        mvc.perform(get("/api/rdv/telephone/0341111111")).andExpect(status().isOk()).andExpect(jsonPath("$[0].praticienNom").isEmpty());
+        // le super administrateur ne peut pas confirmer avant la personne attribuée
+        mvc.perform(put("/api/rdv/" + id + "/confirmer").header("Authorization", admin)).andExpect(status().isConflict())
+                .andExpect(jsonPath("$.message").value(containsString("n'a pas encore accepté")));
+        // 1re confirmation : la personne attribuée -> le super administrateur est notifié
+        mvc.perform(put("/api/rdv/" + id + "/accepter").header("Authorization", medecin)).andExpect(status().isOk()).andExpect(jsonPath("$.personnelConfirme").value(true))
+                .andExpect(jsonPath("$.statut").value("EN_ATTENTE"));
+        mvc.perform(get("/api/notifications").header("Authorization", admin)).andExpect(jsonPath("$.nonLues").value(2))
+                .andExpect(jsonPath("$.notifications[0].type").value("RDV_ACCEPTE"))
+                .andExpect(jsonPath("$.notifications[0].message").value(containsString("Test MEDECIN")))
+                .andExpect(jsonPath("$.notifications[0].message").value(containsString("Double Confirmation")));
+        // accepter deux fois ne crée pas une seconde notification
+        mvc.perform(put("/api/rdv/" + id + "/accepter").header("Authorization", medecin)).andExpect(status().isOk());
+        mvc.perform(get("/api/notifications").header("Authorization", admin)).andExpect(jsonPath("$.nonLues").value(2));
+        // 2e confirmation : le super administrateur -> le rendez-vous est confirmé, la personne en est informée, le patient voit son nom
+        mvc.perform(put("/api/rdv/" + id + "/confirmer").header("Authorization", admin)).andExpect(status().isOk()).andExpect(jsonPath("$.statut").value("CONFIRME"));
+        mvc.perform(get("/api/notifications").header("Authorization", medecin)).andExpect(jsonPath("$.notifications[0].type").value("RDV_CONFIRME"));
+        mvc.perform(get("/api/rdv/telephone/0341111111")).andExpect(jsonPath("$[0].praticienNom").value("Test MEDECIN"));
+        // changer de personne remet l'acceptation à zéro
+        mvc.perform(put("/api/rdv/" + id + "/praticien").header("Authorization", admin).contentType(MediaType.APPLICATION_JSON)
+                .content("{\"praticienId\":" + idDe("test.sf@casafami.test") + "}")).andExpect(status().isOk()).andExpect(jsonPath("$.personnelConfirme").value(false));
+    }
+
+    @Test
+    void lePraticienAccepteSeulementSesRdv_etSecretaireNeChangePasLaPersonne() throws Exception {
         String id = extraire(creer(jourOuvre(1), "10:30:00", "Mon Rdv Patient", "0341111111"), "id");
         mvc.perform(put("/api/rdv/" + id + "/praticien").header("Authorization", admin).contentType(MediaType.APPLICATION_JSON)
                 .content("{\"praticienId\":" + idDe("test.medecin@casafami.test") + "}")).andExpect(status().isOk());
-        mvc.perform(put("/api/rdv/" + id + "/confirmer").header("Authorization", sageFemme)).andExpect(status().isForbidden()); // pas le sien
-        mvc.perform(put("/api/rdv/" + id + "/confirmer").header("Authorization", medecin)).andExpect(status().isOk());              // le sien
+        mvc.perform(put("/api/rdv/" + id + "/accepter").header("Authorization", sageFemme)).andExpect(status().isForbidden()); // pas le sien
+        mvc.perform(put("/api/rdv/" + id + "/confirmer").header("Authorization", medecin)).andExpect(status().isForbidden());    // la confirmation finale est au super administrateur
+        mvc.perform(put("/api/rdv/" + id + "/accepter").header("Authorization", medecin)).andExpect(status().isOk()).andExpect(jsonPath("$.personnelConfirme").value(true)); // le sien
         // la secrétaire modifie le rendez-vous : la personne attribuée est conservée même si elle en envoie une autre
         LocalDate date = jourOuvre(1);
         mvc.perform(put("/api/rdv/" + id).header("Authorization", secretaire).contentType(MediaType.APPLICATION_JSON)
@@ -711,7 +879,8 @@ class FonctionnalitesTests {
                 .andExpect(status().isOk()).andExpect(jsonPath("$.praticienNom").value("Test MEDECIN"));
         // déplacement du rendez-vous : la personne attribuée est prévenue
         mvc.perform(put("/api/rdv/" + id).header("Authorization", secretaire).contentType(MediaType.APPLICATION_JSON)
-                .content(rdvJson(date, "14:00:00", "Mon Rdv Patient", "0341111111", null))).andExpect(status().isOk());
+                .content(rdvJson(date, "14:00:00", "Mon Rdv Patient", "0341111111", null))).andExpect(status().isOk())
+                .andExpect(jsonPath("$.personnelConfirme").value(false)); // nouvel horaire en attente : la personne doit accepter de nouveau
         mvc.perform(get("/api/notifications").header("Authorization", medecin)).andExpect(jsonPath("$.notifications[0].type").value("RDV_DEPLACE"));
     }
 

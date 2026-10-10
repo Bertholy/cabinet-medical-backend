@@ -9,7 +9,6 @@ import lombok.RequiredArgsConstructor;
 import org.springframework.http.HttpStatus;
 import org.springframework.http.ResponseEntity;
 import org.springframework.transaction.annotation.Transactional;
-import org.springframework.util.StringUtils;
 import org.springframework.web.multipart.MultipartFile;
 import org.springframework.web.bind.annotation.*;
 import org.springframework.web.server.ResponseStatusException;
@@ -49,7 +48,7 @@ public class ServiceController {
             Service service = new Service();
             service.setNom(cleanName);
             service.setDescription(cleanDescription);
-            service.setDuree(StringUtils.hasText(duree) ? duree.trim() : null);
+            service.setDuree(dureeOuNull(duree));
             service.setImageUrl(imageUrl);
             Service saved = serviceRepository.save(service);
             audit.log("SERVICE_CREE", "Service", saved.getId(), saved.getNom());
@@ -81,7 +80,7 @@ public class ServiceController {
         String nouvelleImage = photo != null && !photo.isEmpty() ? imageStorageService.storeImage("services", photo) : null;
         service.setNom(cleanName);
         service.setDescription(cleanDescription);
-        service.setDuree(StringUtils.hasText(duree) ? duree.trim() : null);
+        service.setDuree(dureeOuNull(duree));
         if (nouvelleImage != null) service.setImageUrl(nouvelleImage);
         Service saved = serviceRepository.saveAndFlush(service);
         if (nouvelleImage != null) imageStorageService.deleteStoredImage("services", ancienneImage);
@@ -101,5 +100,10 @@ public class ServiceController {
         audit.log("SERVICE_SUPPRIME", "Service", id, service.getNom());
         imageStorageService.deleteStoredImage("services", service.getImageUrl());
         return ResponseEntity.noContent().build();
+    }
+
+    private static String dureeOuNull(String duree) {
+        String texte = duree == null ? "" : duree.trim();
+        return texte.isEmpty() ? null : texte;
     }
 }

@@ -20,6 +20,7 @@ import java.util.Map;
  * Statistiques de l'activité du cabinet (super administrateur, médecin, secrétaire : voir SecurityConfig).
  * Les rendez-vous placés dans la corbeille ne sont jamais comptés.
  */
+@SuppressWarnings("null") // avertissements de l'éditeur sur des références de méthode : aucun risque réel
 @RestController
 @RequestMapping("/api/stats")
 @RequiredArgsConstructor
