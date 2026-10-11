@@ -1,0 +1,8 @@
+target/
+uploads/
+backups/
+config/application.properties
+.git
+.idea
+.vscode
+*.md

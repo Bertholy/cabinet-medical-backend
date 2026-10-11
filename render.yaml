@@ -1,0 +1,36 @@
+# Plan de déploiement Render (« Blueprint ») : le serveur CASAFAMI en Docker, offre gratuite.
+# Les valeurs secrètes (sync: false) sont demandées à la création et ne sont jamais écrites dans Git.
+# Guide complet : DEPLOIEMENT-EN-LIGNE.md (dépôt principal casafami).
+services:
+  - type: web
+    name: casafami-api
+    runtime: docker
+    plan: free
+    healthCheckPath: /api/planning
+    envVars:
+      # Base PostgreSQL (ex. Neon) : jdbc:postgresql://HOTE/BASE?sslmode=require
+      - key: CASAFAMI_DB_URL
+        sync: false
+      - key: CASAFAMI_DB_USER
+        sync: false
+      - key: CASAFAMI_DB_PASSWORD
+        sync: false
+      # Clé de connexion : node -e "console.log(require('crypto').randomBytes(48).toString('base64'))"
+      - key: CASAFAMI_JWT_SECRET
+        sync: false
+      # Adresse publique du site (Netlify), sans « / » final, ex. https://casafami.netlify.app
+      - key: CASAFAMI_CORS_ORIGINS
+        sync: false
+      - key: CASAFAMI_FRONTEND_URL
+        sync: false
+      # Premier super administrateur (créé au démarrage ; retirez le mot de passe ensuite)
+      - key: CASAFAMI_SUPER_ADMIN_EMAIL
+        sync: false
+      - key: CASAFAMI_SUPER_ADMIN_PASSWORD
+        sync: false
+      # pg_dump n'existe pas dans l'image : la base est sauvegardée par l'hébergeur de la base (Neon), pas par l'application.
+      - key: CASAFAMI_BACKUP_AUTO
+        value: "false"
+      # SMS simulés tant que Twilio n'est pas configuré (voir DEPLOY.md §7)
+      - key: CASAFAMI_SMS_MODE
+        value: simulation
