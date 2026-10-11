@@ -6,6 +6,7 @@ services:
     name: casafami-api
     runtime: docker
     plan: free
+    region: ohio
     healthCheckPath: /api/planning
     envVars:
       # Base PostgreSQL (ex. Neon) : jdbc:postgresql://HOTE/BASE?sslmode=require
