@@ -26,6 +26,7 @@ public class ProfilController {
     private final ImageStorageService imageStorageService;
     private final PasswordEncoder passwordEncoder;
     private final AuditService audit;
+    private final com.cabinet.cabinet.security.PermissionService permissions;
 
     public record ChangementMotDePasse(@NotBlank(message = "Le mot de passe actuel est obligatoire") String ancienMotDePasse,
                                        @NotBlank(message = "Le nouveau mot de passe est obligatoire")
@@ -68,6 +69,6 @@ public class ProfilController {
     }
 
     private ProfilResponseDTO toResponse(Utilisateur user) {
-        return new ProfilResponseDTO(user.getId(), user.getNom(), user.getEmail(), user.getRole(), user.getPhotoUrl());
+        return new ProfilResponseDTO(user.getId(), user.getNom(), user.getEmail(), user.getRole(), user.getPhotoUrl(), permissions.de(user));
     }
 }

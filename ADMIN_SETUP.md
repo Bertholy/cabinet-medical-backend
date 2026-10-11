@@ -34,6 +34,15 @@ Les comptes hérités du rôle `INFIRMIERE` restent compatibles et sont traités
 - **Modifier le site** : en mode édition, cliquer sur un texte du site public pour le modifier ; faire glisser la poignée ✥ pour déplacer un bouton. « Cette page », « Menu et pied de page » et « Tout le site » remettent l'apparence d'origine.
 - **Couleurs du site** : palette globale.
 
+## Rôles et permissions (super administrateur)
+
+Menu **Administration → Rôles et permissions**. Le tableau ci-dessous donne les droits **d'origine** ; le super administrateur les change à tout moment :
+- **Par rôle** : cocher / décocher chaque droit pour tous les médecins, sages-femmes, infirmières ou secrétaires (bouton « rétablir » pour revenir aux droits d'origine).
+- **Par personne** : exception pour une seule personne (« Accorder », « Retirer » ou « Selon le rôle »).
+- Le super administrateur a **toujours tous les droits**. Gérer les comptes, gérer les permissions et les sauvegardes restent **réservés** au super administrateur (verrouillés).
+- Chaque changement est appliqué tout de suite par le serveur (le site cache aussi les boutons et menus non permis) et inscrit au journal d'audit (`PERMISSIONS_ROLE`, `PERMISSIONS_PERSONNE`).
+- Exemple : donner « Attribuer » et « Confirmer définitivement » à la secrétaire pour qu'elle gère les rendez-vous à la place du super administrateur.
+
 ## Droits par rôle (résumé)
 
 | | Super admin | Médecin | Sage-femme | Secrétaire |

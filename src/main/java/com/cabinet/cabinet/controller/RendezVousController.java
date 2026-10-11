@@ -11,6 +11,8 @@ import com.cabinet.cabinet.entity.Utilisateur;
 import com.cabinet.cabinet.enums.Role;
 import com.cabinet.cabinet.repository.ServiceRepository;
 import com.cabinet.cabinet.repository.UtilisateurRepository;
+import com.cabinet.cabinet.security.PermissionService;
+import com.cabinet.cabinet.security.Permissions;
 import com.cabinet.cabinet.service.RendezVousPdfService;
 import com.cabinet.cabinet.enums.StatutRDV;
 import com.cabinet.cabinet.service.RendezVousService;
@@ -44,12 +46,16 @@ public class RendezVousController {
     private final ServiceRepository serviceRepository;
     private final UtilisateurRepository utilisateurRepository;
     private final com.cabinet.cabinet.service.PlanningService planningService;
+    private final PermissionService permissions;
 
     // ============ CRÉER UN RDV (client) ============
     @PostMapping
     public ResponseEntity<RendezVousResponseDTO> creer(@Valid @RequestBody RendezVousRequestDTO dto, Authentication authentication) {
         // Le patient ne choisit jamais qui le reçoit : seule la création faite par le super administrateur peut désigner une personne.
-        if (!hasRole(authentication, "SUPER_ADMIN")) dto.setPraticienId(null);
+        if (isInternal(authentication) && !permissions.autorise(authentication, Permissions.RDV_CREER)) {
+            throw new org.springframework.security.access.AccessDeniedException("Vous n'avez pas le droit de créer un rendez-vous.");
+        }
+        if (!permissions.autorise(authentication, Permissions.RDV_ATTRIBUER)) dto.setPraticienId(null);
         RendezVousResponseDTO response = rendezVousService.creerRendezVous(dto, origineDe(authentication), hasRole(authentication, "SUPER_ADMIN"));
         return ResponseEntity.status(HttpStatus.CREATED).body(response);
     }
@@ -124,7 +130,7 @@ public class RendezVousController {
 
     @PutMapping("/{id}")
     public ResponseEntity<RendezVousResponseDTO> modifier(@PathVariable Long id, @Valid @RequestBody RendezVousRequestDTO dto, Authentication authentication) {
-        return ResponseEntity.ok(rendezVousService.modifierRendezVous(id, dto, hasRole(authentication, "SUPER_ADMIN"), origineDe(authentication)));
+        return ResponseEntity.ok(rendezVousService.modifierRendezVous(id, dto, permissions.autorise(authentication, Permissions.RDV_ATTRIBUER), origineDe(authentication)));
     }
 
     @DeleteMapping("/{id}")

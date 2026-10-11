@@ -4,12 +4,16 @@ import com.cabinet.cabinet.dto.PlanningDTO;
 import com.cabinet.cabinet.dto.PlanningDTO.JourFermeDTO;
 import com.cabinet.cabinet.entity.JourFerme;
 import com.cabinet.cabinet.repository.RendezVousRepository;
+import com.cabinet.cabinet.entity.Utilisateur;
+import com.cabinet.cabinet.repository.UtilisateurRepository;
 import com.cabinet.cabinet.service.AuditService;
+import com.cabinet.cabinet.service.CongesNotificationService;
 import com.cabinet.cabinet.service.PlanningService;
 import jakarta.validation.Valid;
 import lombok.RequiredArgsConstructor;
 import org.springframework.http.HttpStatus;
 import org.springframework.http.ResponseEntity;
+import org.springframework.security.core.Authentication;
 import org.springframework.web.bind.annotation.*;
 
 import java.time.LocalDate;
@@ -30,6 +34,8 @@ public class PlanningController {
     private final PlanningService planning;
     private final RendezVousRepository rendezVous;
     private final AuditService audit;
+    private final CongesNotificationService conges;
+    private final UtilisateurRepository utilisateurs;
 
     @GetMapping("/planning")
     public Map<String, Object> lire() {
@@ -62,20 +68,29 @@ public class PlanningController {
     }
 
     @PostMapping("/admin/jours-fermes")
-    public ResponseEntity<Map<String, Object>> fermer(@Valid @RequestBody JourFermeDTO dto) {
+    public ResponseEntity<Map<String, Object>> fermer(@Valid @RequestBody JourFermeDTO dto, Authentication authentication) {
         JourFermeDTO saved = planning.fermer(dto.date(), dto.motif());
         long impactes = rendezVous.countActifsLe(dto.date());
         audit.log("JOUR_FERME", "JourFerme", saved.id(), dto.date() + (saved.motif() == null ? "" : " — " + saved.motif()));
+        // le personnel est prévenu : notification dans son compte + SMS s'il a un numéro
+        CongesNotificationService.Resultat prevenus = conges.fermeture(dto.date(), saved.motif(), impactes, authentication.getName(), nomDe(authentication));
         Map<String, Object> body = new LinkedHashMap<>();
         body.put("jourFerme", saved);
         body.put("rdvImpactes", impactes);
+        body.put("personnelPrevenu", prevenus.personnes());
+        body.put("smsEnvoyes", prevenus.sms());
         return ResponseEntity.status(HttpStatus.CREATED).body(body);
     }
 
     @DeleteMapping("/admin/jours-fermes/{id}")
-    public ResponseEntity<Void> rouvrir(@PathVariable Long id) {
+    public ResponseEntity<Void> rouvrir(@PathVariable Long id, Authentication authentication) {
         LocalDate date = planning.rouvrir(id);
         audit.log("JOUR_ROUVERT", "JourFerme", id, String.valueOf(date));
+        conges.reouverture(date, authentication.getName(), nomDe(authentication));
         return ResponseEntity.noContent().build();
+    }
+
+    private String nomDe(Authentication authentication) {
+        return utilisateurs.findByEmailIgnoreCase(authentication.getName()).map(Utilisateur::getNom).orElse("Le super administrateur");
     }
 }

@@ -31,6 +31,10 @@ public class SiteContent {
     @Column(name = "offset_y")
     private Integer offsetY;
 
+    /** Mise en forme du texte (gras, taille, couleur…), voir StyleTexte. */
+    @Column(length = 300)
+    private String style;
+
     @Column(name = "modifie_le")
     private LocalDateTime modifieLe;
 }

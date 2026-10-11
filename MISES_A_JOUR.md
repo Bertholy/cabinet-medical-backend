@@ -1,5 +1,20 @@
 # Mises à jour — CASAFAMI (serveur)
 
+## Mise à jour suivante (11 octobre 2026, soir)
+
+### Rôles et permissions
+- Nouveau : le super administrateur règle **qui peut faire quoi** (`/api/admin/permissions`) : par rôle et par personne, 25 droits (rendez-vous, patients, cabinet, administration). Droits d'origine = fonctionnement d'avant (rien ne change tant qu'on ne touche à rien). Les droits d'administration (comptes, permissions, sauvegardes) restent verrouillés.
+- Appliqué par le serveur (`SecurityConfig`, création / confirmation de rendez-vous) ; la connexion et `/api/profile` renvoient la liste des droits ; journal d'audit `PERMISSIONS_ROLE` / `PERMISSIONS_PERSONNE`. Nouvelles tables créées automatiquement : `permission_role`, `permission_utilisateur`.
+
+### Photos
+- Toute photo (jusqu'à 20 Mo, 150 Mpx) est **convertie automatiquement** en JPEG de 1600 px maximum (côté site avant l'envoi, et côté serveur en sécurité). Fini « Image invalide ou trop grande en dimensions ».
+
+### Congés
+- Poser ou annuler un jour de fermeture envoie une **notification** dans le compte de chaque membre du personnel et un **SMS** à ceux qui ont un numéro (simulé tant que Twilio n'est pas activé). Les rendez-vous déjà pris ce jour-là sont signalés au super administrateur.
+
+### Éditeur du site
+- Les textes peuvent avoir une mise en forme (gras, italique, alignement, taille, couleur) et on peut **ajouter des textes** en haut ou en bas de chaque page (`site_content.style`).
+
 ## Version du 11 octobre 2026
 
 ### Rendez-vous : attribution en deux confirmations

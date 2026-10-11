@@ -32,6 +32,7 @@ public class AuthController {
     private final UtilisateurRepository utilisateurRepository;
     private final LoginAttemptService tentatives;
     private final AuditService audit;
+    private final com.cabinet.cabinet.security.PermissionService permissions;
 
     @PostMapping("/login")
     public ResponseEntity<LoginResponseDTO> login(@Valid @RequestBody LoginRequestDTO request, HttpServletRequest http) {
@@ -69,7 +70,8 @@ public class AuthController {
                 token,
                 utilisateur.getEmail(),
                 utilisateur.getRole().name(),
-                "Connexion réussie"
+                "Connexion réussie",
+                permissions.de(utilisateur)
         );
 
         return ResponseEntity.ok(response);

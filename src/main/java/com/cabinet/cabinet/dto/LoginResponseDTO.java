@@ -13,4 +13,6 @@ public class LoginResponseDTO {
     private String email;
     private String role;
     private String message;
+    /** Droits de la personne connectée (le site masque ce qui n'est pas permis ; le serveur vérifie de toute façon). */
+    private java.util.Collection<String> permissions;
 }

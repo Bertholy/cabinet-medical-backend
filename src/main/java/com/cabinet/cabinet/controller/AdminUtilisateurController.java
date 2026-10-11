@@ -34,6 +34,8 @@ public class AdminUtilisateurController {
     private final com.cabinet.cabinet.repository.NotificationRepository notificationRepository;
     private final com.cabinet.cabinet.repository.ReinitialisationMotDePasseRepository reinitialisations;
     private final com.cabinet.cabinet.repository.MessageRepository messageRepository;
+    private final com.cabinet.cabinet.repository.PermissionUtilisateurRepository exceptionsDroits;
+    private final com.cabinet.cabinet.security.PermissionService permissions;
 
     public record ModificationCompte(@NotBlank(message = "Le nom est obligatoire") @Size(max = 100) String nom,
                                      @NotBlank(message = "L'adresse e-mail est obligatoire") @Email(message = "Adresse e-mail invalide") @Size(max = 150) String email,
@@ -72,6 +74,7 @@ public class AdminUtilisateurController {
         users.findByEmailIgnoreCase(email).filter(autre -> !autre.getId().equals(id)).ifPresent(autre -> {
             throw new ResponseStatusException(HttpStatus.CONFLICT, "Cette adresse e-mail est déjà utilisée.");
         });
+        permissions.invalider();
         boolean emailChange = !email.equalsIgnoreCase(user.getEmail());
         user.setNom(request.nom().trim());
         user.setEmail(email);
@@ -104,6 +107,7 @@ public class AdminUtilisateurController {
             throw new ResponseStatusException(HttpStatus.CONFLICT, "Il faut conserver au moins un super administrateur.");
         }
         Role ancien = user.getRole();
+        permissions.invalider();
         user.setRole(role);
         Utilisateur saved = users.save(user);
         audit.log("ROLE_MODIFIE", "Utilisateur", id, saved.getEmail() + " : " + ancien + " → " + role);
@@ -124,7 +128,9 @@ public class AdminUtilisateurController {
         notificationRepository.supprimerDuDestinataire(id);
         reinitialisations.supprimerDe(id);
         messageRepository.supprimerDe(id);
+        exceptionsDroits.supprimerDe(id);
         users.delete(user);
+        permissions.invalider();
         audit.log("COMPTE_SUPPRIME", "Utilisateur", id, user.getEmail());
         return ResponseEntity.noContent().build();
     }

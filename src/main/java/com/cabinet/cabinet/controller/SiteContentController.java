@@ -3,6 +3,7 @@ package com.cabinet.cabinet.controller;
 import com.cabinet.cabinet.entity.SiteContent;
 import com.cabinet.cabinet.repository.SiteContentRepository;
 import com.cabinet.cabinet.service.AuditService;
+import com.cabinet.cabinet.util.StyleTexte;
 import jakarta.validation.Valid;
 import jakarta.validation.constraints.Size;
 import lombok.RequiredArgsConstructor;
@@ -32,8 +33,12 @@ public class SiteContentController {
     private final SiteContentRepository repository;
     private final AuditService audit;
 
+    /** Nombre maximal de textes ajoutés par le super administrateur (clé « ajout.… ») : évite de remplir la base par erreur. */
+    private static final int AJOUTS_MAX = 200;
+
+    /** style : absent = inchangé ; objet vide = mise en forme retirée. */
     public record Modification(@Size(max = 2000, message = "Le texte ne peut pas dépasser 2000 caractères") String texte,
-                               Integer offsetX, Integer offsetY) { }
+                               Integer offsetX, Integer offsetY, Map<String, Object> style) { }
 
     @GetMapping
     @Transactional(readOnly = true)
@@ -44,6 +49,7 @@ public class SiteContentController {
             valeur.put("texte", c.getTexte());
             valeur.put("offsetX", c.getOffsetX());
             valeur.put("offsetY", c.getOffsetY());
+            valeur.put("style", StyleTexte.lire(c.getStyle()));
             body.put(c.getCle(), valeur);
         }
         return body;
@@ -59,6 +65,10 @@ public class SiteContentController {
             neuf.setCle(cle);
             return neuf;
         });
+        if (contenu.getModifieLe() == null && cle.startsWith("ajout.") && repository.count() >= AJOUTS_MAX) {
+            throw new ResponseStatusException(HttpStatus.CONFLICT, "Trop de textes ajoutés : supprimez-en avant d'en créer de nouveaux.");
+        }
+        if (modification.style() != null) contenu.setStyle(StyleTexte.valider(modification.style()));
         if (modification.texte() != null) contenu.setTexte(modification.texte().isBlank() ? null : modification.texte().strip());
         if (modification.offsetX() != null) contenu.setOffsetX(borner(modification.offsetX()));
         if (modification.offsetY() != null) contenu.setOffsetY(borner(modification.offsetY()));
@@ -68,16 +78,17 @@ public class SiteContentController {
             contenu.setOffsetY(null);
         }
         contenu.setModifieLe(LocalDateTime.now(ZoneId.of("Indian/Antananarivo")));
-        if (contenu.getTexte() == null && contenu.getOffsetX() == null && contenu.getOffsetY() == null) {
+        if (contenu.getTexte() == null && contenu.getOffsetX() == null && contenu.getOffsetY() == null && contenu.getStyle() == null) {
             repository.deleteById(cle);
         } else {
             repository.save(contenu);
         }
-        audit.log("SITE_MODIFIE", "SiteContent", cle, modification.texte() != null ? "Texte modifié" : "Position modifiée");
+        audit.log("SITE_MODIFIE", "SiteContent", cle, modification.texte() != null ? "Texte modifié" : (modification.style() != null ? "Mise en forme modifiée" : "Position modifiée"));
         Map<String, Object> valeur = new LinkedHashMap<>();
         valeur.put("texte", contenu.getTexte());
         valeur.put("offsetX", contenu.getOffsetX());
         valeur.put("offsetY", contenu.getOffsetY());
+        valeur.put("style", StyleTexte.lire(contenu.getStyle()));
         return valeur;
     }
 

@@ -52,6 +52,7 @@ public class RendezVousService {
     private final PlanningService planning;
     private final AuditService audit;
     private final NotificationService notifications;
+    private final com.cabinet.cabinet.security.PermissionService permissions;
     private final JdbcTemplate jdbc;
     private static final SecureRandom SECURE_RANDOM = new SecureRandom();
     private static final ZoneId CABINET_ZONE = ZoneId.of("Indian/Antananarivo");
@@ -420,8 +421,8 @@ public class RendezVousService {
             throw new StatutInvalideException("Seul un RDV en attente peut être confirmé");
         }
         Utilisateur acteur = acteur(emailActeur);
-        if (acteur.getRole() != Role.SUPER_ADMIN) {
-            throw new org.springframework.security.access.AccessDeniedException("Seul le super administrateur confirme définitivement un rendez-vous.");
+        if (!permissions.de(acteur).contains(com.cabinet.cabinet.security.Permissions.RDV_CONFIRMER)) {
+            throw new org.springframework.security.access.AccessDeniedException("Vous n'avez pas le droit de confirmer définitivement un rendez-vous.");
         }
         verrouillerJour(rdv.getDateRdv());
         if (rdv.getPraticien() == null) {
