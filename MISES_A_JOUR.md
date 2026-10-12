@@ -2,6 +2,8 @@
 
 ## Mise à jour suivante (11 octobre 2026, soir)
 
+- Réservation en ligne : un même nom (comparé sans majuscules, accents ni ordre des mots) ne peut pas faire deux réservations actives à moins de 3 jours d'intervalle (réponse 422 avec `code: RESERVATION_RECENTE` et `disponibleLe`). Les rendez-vous annulés ou à la corbeille ne comptent pas ; le personnel est exempté. Réglable par `CASAFAMI_DELAI_RESERVATION_JOURS` (0 = désactivé).
+
 - Nouveau : `GET /api/nouveautes` (petits nombres du menu du personnel) : nombre de nouveaux rendez-vous, éléments de corbeille, comptes rendus, entrées de maternité et du journal depuis l'heure de dernière visite que le navigateur renvoie, plus les rendez-vous à accepter ; chaque compteur n'est calculé que si la personne a le droit de voir la page.
 
 ### Rôles et permissions

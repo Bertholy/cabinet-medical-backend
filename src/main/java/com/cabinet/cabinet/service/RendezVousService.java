@@ -54,6 +54,10 @@ public class RendezVousService {
     private final NotificationService notifications;
     private final com.cabinet.cabinet.security.PermissionService permissions;
     private final JdbcTemplate jdbc;
+
+    /** Un même nom ne peut pas faire deux réservations en ligne à moins de N jours d'intervalle (0 = règle désactivée). */
+    @org.springframework.beans.factory.annotation.Value("${app.reservation.delai-jours:3}")
+    private int delaiEntreReservationsJours;
     private static final SecureRandom SECURE_RANDOM = new SecureRandom();
     private static final ZoneId CABINET_ZONE = ZoneId.of("Indian/Antananarivo");
 
@@ -62,6 +66,37 @@ public class RendezVousService {
     private String numeroMedecin;
 
     // ============ CRÉER UN RDV ============
+    /**
+     * Règle de la réservation en ligne : un nom qui a déjà une réservation active (non annulée) faite il y a moins de 3 jours ne peut pas en faire une
+     * seconde avant la fin de ce délai ; annuler la première la libère. Les noms sont comparés sans tenir compte des majuscules, des accents,
+     * de l'ordre des mots ni des espaces en trop (« rakoto  Jean » = « Jean Rakoto »). Le personnel n'est pas concerné (voir le contrôleur).
+     */
+    @Transactional(readOnly = true)
+    public void verifierDelaiEntreReservations(String nomClient) {
+        if (delaiEntreReservationsJours <= 0 || nomClient == null) return;
+        LocalDateTime maintenant = LocalDateTime.now(CABINET_ZONE);
+        String cle = cleDeNom(nomClient);
+        if (cle.isEmpty()) return;
+        for (RendezVous existant : rendezVousRepository.findReservationsActivesDepuis(maintenant.minusDays(delaiEntreReservationsJours))) {
+            if (!cle.equals(cleDeNom(existant.getNomClient()))) continue;
+            LocalDateTime disponibleLe = existant.getDateCreation().plusDays(delaiEntreReservationsJours);
+            throw new com.cabinet.cabinet.exception.ReservationRecenteException(
+                    "Une réservation existe déjà au nom de « " + existant.getNomClient().trim() + " » (rendez-vous du "
+                            + existant.getDateRdv().format(java.time.format.DateTimeFormatter.ofPattern("dd/MM/yyyy")) + " à "
+                            + existant.getHeureRdv().format(java.time.format.DateTimeFormatter.ofPattern("HH:mm")) + "). Une nouvelle réservation sera possible à partir du "
+                            + disponibleLe.format(java.time.format.DateTimeFormatter.ofPattern("dd/MM/yyyy 'à' HH:mm")) + ", ou dès que la première est annulée.",
+                    disponibleLe, existant.getDateRdv(), existant.getHeureRdv());
+        }
+    }
+
+    /** Nom ramené à une forme comparable : minuscules, sans accents ni ponctuation, mots triés. */
+    static String cleDeNom(String nom) {
+        String sansAccents = java.text.Normalizer.normalize(nom == null ? "" : nom, java.text.Normalizer.Form.NFD).replaceAll("\\p{M}+", "");
+        String[] mots = sansAccents.toLowerCase(java.util.Locale.ROOT).replaceAll("[^a-z0-9 ]", " ").trim().split("\\s+");
+        java.util.Arrays.sort(mots);
+        return String.join(" ", mots).trim();
+    }
+
     /** Réservation faite par un patient (site public) : les super administrateurs sont prévenus pour attribuer le rendez-vous. */
     @Transactional
     public RendezVousResponseDTO creerRendezVous(RendezVousRequestDTO dto) {

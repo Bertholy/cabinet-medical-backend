@@ -6,6 +6,7 @@ import org.springframework.data.jpa.repository.Modifying;
 import org.springframework.data.jpa.repository.Query;
 import org.springframework.data.repository.query.Param;
 
+import java.time.LocalDateTime;
 import java.time.LocalTime;
 import java.util.List;
 import java.util.Optional;
@@ -43,6 +44,10 @@ public interface RendezVousRepository extends JpaRepository<RendezVous, Long> {
     long countOtherActiveAtSlot(@Param("id") Long id, @Param("dateRdv") LocalDate dateRdv, @Param("heureRdv") LocalTime heureRdv);
 
     /** Un praticien ne peut avoir qu'un seul rendez-vous actif à la fois (excludeId = rendez-vous en cours de modification, 0 sinon). */
+    /** Réservations faites depuis {@code depuis} et encore actives (ni annulées ni à la corbeille), la plus ancienne d'abord. */
+    @Query("select r from RendezVous r where (r.supprime = false or r.supprime is null) and r.statut <> com.cabinet.cabinet.enums.StatutRDV.ANNULE and r.dateCreation > :depuis order by r.dateCreation asc")
+    List<RendezVous> findReservationsActivesDepuis(@Param("depuis") LocalDateTime depuis);
+
     @Query("select count(r) > 0 from RendezVous r where r.praticien.id = :praticienId and r.id <> :excludeId and r.dateRdv = :dateRdv and r.heureRdv = :heureRdv and (r.supprime = false or r.supprime is null) and r.statut <> com.cabinet.cabinet.enums.StatutRDV.ANNULE")
     boolean praticienOccupe(@Param("praticienId") Long praticienId, @Param("excludeId") Long excludeId, @Param("dateRdv") LocalDate dateRdv, @Param("heureRdv") LocalTime heureRdv);
 

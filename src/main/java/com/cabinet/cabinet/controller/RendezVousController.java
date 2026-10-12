@@ -55,6 +55,8 @@ public class RendezVousController {
         if (isInternal(authentication) && !permissions.autorise(authentication, Permissions.RDV_CREER)) {
             throw new org.springframework.security.access.AccessDeniedException("Vous n'avez pas le droit de créer un rendez-vous.");
         }
+        // Réservation en ligne par un patient : un même nom ne réserve pas deux fois à moins de 3 jours d'intervalle (le personnel est exempté).
+        if (!isInternal(authentication)) rendezVousService.verifierDelaiEntreReservations(dto.getNomClient());
         if (!permissions.autorise(authentication, Permissions.RDV_ATTRIBUER)) dto.setPraticienId(null);
         RendezVousResponseDTO response = rendezVousService.creerRendezVous(dto, origineDe(authentication), hasRole(authentication, "SUPER_ADMIN"));
         return ResponseEntity.status(HttpStatus.CREATED).body(response);

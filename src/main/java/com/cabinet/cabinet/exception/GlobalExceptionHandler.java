@@ -42,6 +42,18 @@ public class GlobalExceptionHandler extends ResponseEntityExceptionHandler {
         return buildResponse(HttpStatus.CONFLICT, "Créneau indisponible", ex.getMessage());
     }
 
+    /** 422 (et non 409, réservé aux créneaux pris) : le site affiche un message précis avec la date à partir de laquelle on peut réserver à nouveau. */
+    @ExceptionHandler(ReservationRecenteException.class)
+    public ResponseEntity<Map<String, Object>> handleReservationRecente(ReservationRecenteException ex) {
+        ResponseEntity<Map<String, Object>> base = buildResponse(HttpStatus.UNPROCESSABLE_ENTITY, "Réservation déjà faite", ex.getMessage());
+        Map<String, Object> body = new LinkedHashMap<>(base.getBody());
+        body.put("code", "RESERVATION_RECENTE");
+        body.put("disponibleLe", ex.getDisponibleLe().toString());
+        body.put("dateRdvExistant", ex.getDateRdvExistant().toString());
+        body.put("heureRdvExistant", ex.getHeureRdvExistant().toString());
+        return ResponseEntity.status(HttpStatus.UNPROCESSABLE_ENTITY).body(body);
+    }
+
     @ExceptionHandler(StatutInvalideException.class)
     public ResponseEntity<Map<String, Object>> handleStatutInvalide(StatutInvalideException ex) {
         return buildResponse(HttpStatus.BAD_REQUEST, "Statut invalide", ex.getMessage());
