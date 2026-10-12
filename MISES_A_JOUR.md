@@ -2,6 +2,8 @@
 
 ## Mise à jour suivante (11 octobre 2026, soir)
 
+- Nouveau : `GET /api/nouveautes` (petits nombres du menu du personnel) : nombre de nouveaux rendez-vous, éléments de corbeille, comptes rendus, entrées de maternité et du journal depuis l'heure de dernière visite que le navigateur renvoie, plus les rendez-vous à accepter ; chaque compteur n'est calculé que si la personne a le droit de voir la page.
+
 ### Rôles et permissions
 - Nouveau : le super administrateur règle **qui peut faire quoi** (`/api/admin/permissions`) : par rôle et par personne, 25 droits (rendez-vous, patients, cabinet, administration). Droits d'origine = fonctionnement d'avant (rien ne change tant qu'on ne touche à rien). Les droits d'administration (comptes, permissions, sauvegardes) restent verrouillés.
 - Appliqué par le serveur (`SecurityConfig`, création / confirmation de rendez-vous) ; la connexion et `/api/profile` renvoient la liste des droits ; journal d'audit `PERMISSIONS_ROLE` / `PERMISSIONS_PERSONNE`. Nouvelles tables créées automatiquement : `permission_role`, `permission_utilisateur`.

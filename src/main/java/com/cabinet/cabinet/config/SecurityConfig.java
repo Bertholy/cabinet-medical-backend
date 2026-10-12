@@ -73,6 +73,7 @@ public class SecurityConfig {
                 .requestMatchers("/api/messagerie/**").hasAnyRole("SUPER_ADMIN", "MEDECIN", "SAGE_FEMME", "SECRETAIRE", "INFIRMIERE")
                 .requestMatchers("/api/profile/**").hasAnyRole("SUPER_ADMIN", "MEDECIN", "SAGE_FEMME", "SECRETAIRE", "INFIRMIERE")
                 .requestMatchers("/api/notifications", "/api/notifications/**").hasAnyRole("SUPER_ADMIN", "MEDECIN", "SAGE_FEMME", "SECRETAIRE", "INFIRMIERE")
+                .requestMatchers("/api/nouveautes").hasAnyRole("SUPER_ADMIN", "MEDECIN", "SAGE_FEMME", "SECRETAIRE", "INFIRMIERE")
 
                 // ============ FICHES MÉDICALES, DOSSIERS, PATIENTS ============
                 .requestMatchers(HttpMethod.GET, "/api/maladies/**").access(permissions.exige(Permissions.MALADIES_LIRE))
