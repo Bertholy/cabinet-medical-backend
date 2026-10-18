@@ -16,7 +16,6 @@ import org.springframework.security.authentication.AnonymousAuthenticationToken;
 import org.springframework.security.authorization.AuthorizationDecision;
 import org.springframework.security.authorization.AuthorizationManager;
 import org.springframework.security.core.Authentication;
-import org.springframework.security.core.GrantedAuthority;
 import org.springframework.security.web.access.intercept.RequestAuthorizationContext;
 import org.springframework.stereotype.Service;
 import org.springframework.transaction.annotation.Transactional;
@@ -79,7 +78,7 @@ public class PermissionService implements ApplicationRunner {
     // ======================================================================== vérification
 
     public static Set<String> toutes() {
-        return Permissions.CATALOGUE.stream().map(Permissions.Definition::code).collect(Collectors.toCollection(TreeSet::new));
+        return Permissions.CATALOGUE.stream().map(d -> d.code()).collect(Collectors.toCollection(TreeSet::new));
     }
 
     /** Permissions effectives d'une personne. */
@@ -93,14 +92,14 @@ public class PermissionService implements ApplicationRunner {
             if (s.isAccorde()) codes.add(s.getCode()); else codes.remove(s.getCode());
         }
         // une permission verrouillée n'est jamais accordée en dehors du super administrateur
-        codes.removeIf(c -> Permissions.trouver(c).map(Permissions.Definition::verrouille).orElse(true));
+        codes.removeIf(c -> Permissions.trouver(c).map(d -> d.verrouille()).orElse(true));
         return codes;
     }
 
     /** Permissions de la personne connectée (gardées 30 s en mémoire). */
     public Set<String> de(Authentication authentication) {
         if (authentication == null || !authentication.isAuthenticated() || authentication instanceof AnonymousAuthenticationToken) return Set.of();
-        String role = authentication.getAuthorities().stream().map(GrantedAuthority::getAuthority).filter(a -> a.startsWith("ROLE_")).findFirst().orElse("");
+        String role = authentication.getAuthorities().stream().map(a -> a.getAuthority()).filter(a -> a.startsWith("ROLE_")).findFirst().orElse("");
         String cle = authentication.getName().toLowerCase() + "|" + role;
         Entree entree = cache.get(cle);
         long maintenant = System.currentTimeMillis();
@@ -198,8 +197,8 @@ public class PermissionService implements ApplicationRunner {
         }).toList());
         List<Map<String, Object>> parRole = new java.util.ArrayList<>();
         for (Role role : ROLES_REGLABLES) {
-            Set<String> accordees = roles.findByRole(role).stream().filter(PermissionRole::isAccorde).map(PermissionRole::getCode).collect(Collectors.toCollection(TreeSet::new));
-            Set<String> defaut = Permissions.CATALOGUE.stream().filter(d -> d.parDefaut().contains(role)).map(Permissions.Definition::code).collect(Collectors.toCollection(TreeSet::new));
+            Set<String> accordees = roles.findByRole(role).stream().filter(p -> p.isAccorde()).map(p -> p.getCode()).collect(Collectors.toCollection(TreeSet::new));
+            Set<String> defaut = Permissions.CATALOGUE.stream().filter(d -> d.parDefaut().contains(role)).map(d -> d.code()).collect(Collectors.toCollection(TreeSet::new));
             Map<String, Object> m = new LinkedHashMap<>();
             m.put("role", role.name()); m.put("permissions", accordees); m.put("modifie", !accordees.equals(defaut));
             m.put("personnes", utilisateurs.countByRole(role));

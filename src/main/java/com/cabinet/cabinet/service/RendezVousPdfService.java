@@ -47,6 +47,17 @@ public class RendezVousPdfService {
 
                 int y = 650;
                 y = field(stream, y, "Num\u00e9ro du rendez-vous", String.valueOf(rdv.getId()));
+                if (rdv.getCleSuivi() != null) {
+                    // La clé de suivi est la référence du patient : saisie dans « Mes RDV », elle retrouve, annule et télécharge ce reçu.
+                    stream.setNonStrokingColor(new java.awt.Color(236, 253, 250));
+                    stream.addRect(54, y - 40, 487, 56);
+                    stream.fill();
+                    stream.setNonStrokingColor(java.awt.Color.BLACK);
+                    write(stream, PDType1Font.HELVETICA_BOLD, 11, 66, y - 2, "Clé de suivi (référence)");
+                    write(stream, PDType1Font.HELVETICA_BOLD, 20, 220, y - 4, rdv.getCleSuivi());
+                    write(stream, PDType1Font.HELVETICA, 9, 66, y - 30, "Saisissez cette clé dans « Mes RDV » du site pour retrouver ou annuler ce rendez-vous.");
+                    y -= 72;
+                }
                 y = field(stream, y, "Patient", rdv.getNomClient());
                 y = field(stream, y, "T\u00e9l\u00e9phone", rdv.getTelephoneClient());
                 y = field(stream, y, "Service", rdv.getService() == null ? "Non pr\u00e9cis\u00e9" : rdv.getService().getNom());

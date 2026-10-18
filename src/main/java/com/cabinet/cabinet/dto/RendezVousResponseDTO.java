@@ -23,6 +23,8 @@ public class RendezVousResponseDTO {
     private boolean personnelConfirme;
     private LocalDateTime personnelConfirmeLe;
     private String clientAccessToken;
+    /** Clé de suivi du rendez-vous (voir RendezVous.cleSuivi). */
+    private String cleSuivi;
     private LocalDate dateRdv;
     private LocalTime heureRdv;
     private StatutRDV statut;

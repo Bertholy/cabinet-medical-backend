@@ -113,6 +113,13 @@ public interface RendezVousRepository extends JpaRepository<RendezVous, Long> {
 
     Optional<RendezVous> findByIdAndSupprimeTrue(Long id);
 
+    @Query("select r from RendezVous r where r.cleSuivi = :cle and (r.supprime = false or r.supprime is null)")
+    Optional<RendezVous> findActifParCleSuivi(@Param("cle") String cle);
+
+    boolean existsByCleSuivi(String cleSuivi);
+
+    List<RendezVous> findByCleSuiviIsNull();
+
     // Détache les références avant la suppression d'un service ou d'un compte (sinon contrainte de clé étrangère → erreur 500).
     @Modifying(clearAutomatically = true, flushAutomatically = true)
     @Query("update RendezVous r set r.service = null where r.service.id = :serviceId")

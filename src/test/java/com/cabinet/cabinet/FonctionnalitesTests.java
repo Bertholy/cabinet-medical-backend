@@ -65,6 +65,7 @@ class FonctionnalitesTests {
     @Autowired ParametresCabinetRepository parametresCabinet;
     @Autowired JdbcTemplate jdbc;
     @Autowired DonneesReparateur reparateur;
+    @Autowired com.cabinet.cabinet.service.RendezVousService rendezVousService;
     @Autowired NotificationRepository notificationRepository;
 
     MockMvc mvc;
@@ -156,24 +157,105 @@ class FonctionnalitesTests {
     }
 
     @Test
-    void rechercheClientParNumeroSansIndicatifEtParNom() throws Exception {
+    void rechercheDuPersonnelParNumeroSansIndicatifEtParNom() throws Exception {
         creer(jourOuvre(1), "08:00:00", "Héry Rakoto", "261 34 12 345 67");
         // enregistré sous la forme locale
         assertEquals("0341234567", rdvs.findAll().get(0).getTelephoneClient());
         for (String q : new String[]{"034 12 345 67", "34 12 345 67", "261341234567", "0341234567"}) {
-            mvc.perform(get("/api/rdv/recherche").param("q", q)).andExpect(status().isOk())
-                    .andExpect(jsonPath("$.length()").value(1)).andExpect(jsonPath("$[0].motif").doesNotExist());
+            mvc.perform(get("/api/rdv/recherche").param("q", q).header("Authorization", secretaire)).andExpect(status().isOk())
+                    .andExpect(jsonPath("$.length()").value(1));
         }
         // nom complet, sans tenir compte de la casse ni des accents
-        mvc.perform(get("/api/rdv/recherche").param("q", "hery  RAKOTO")).andExpect(status().isOk()).andExpect(jsonPath("$.length()").value(1));
+        mvc.perform(get("/api/rdv/recherche").param("q", "hery  RAKOTO").header("Authorization", secretaire)).andExpect(status().isOk()).andExpect(jsonPath("$.length()").value(1));
         // un ou plusieurs mots, dans n'importe quel ordre, début de mot suffisant
         for (String q : new String[]{"rakoto", "hery", "rak her", "Rakoto Héry", "HERY"}) {
-            mvc.perform(get("/api/rdv/recherche").param("q", q)).andExpect(status().isOk()).andExpect(jsonPath("$.length()").value(1));
+            mvc.perform(get("/api/rdv/recherche").param("q", q).header("Authorization", secretaire)).andExpect(status().isOk()).andExpect(jsonPath("$.length()").value(1));
         }
-        mvc.perform(get("/api/rdv/recherche").param("q", "razafy")).andExpect(jsonPath("$.length()").value(0));
-        mvc.perform(get("/api/rdv/recherche").param("q", "ab")).andExpect(status().isBadRequest());
-        // le personnel peut chercher une partie du nom
-        mvc.perform(get("/api/rdv/recherche").param("q", "rakoto").header("Authorization", secretaire)).andExpect(jsonPath("$.length()").value(1));
+        mvc.perform(get("/api/rdv/recherche").param("q", "razafy").header("Authorization", secretaire)).andExpect(jsonPath("$.length()").value(0));
+        mvc.perform(get("/api/rdv/recherche").param("q", "ab").header("Authorization", secretaire)).andExpect(status().isBadRequest());
+    }
+
+    @Test
+    void unVisiteurNePeutPlusChercherParNomNiParNumero() throws Exception {
+        creer(jourOuvre(1), "08:00:00", "Héry Rakoto", "0341234567");
+        for (String url : new String[]{"/api/rdv/recherche?q=rakoto", "/api/rdv/recherche?q=0341234567", "/api/rdv/telephone/0341234567"}) {
+            mvc.perform(get(url)).andExpect(status().is4xxClientError()).andExpect(content().string(not(containsString("Rakoto"))));
+        }
+    }
+
+    @Test
+    void lePatientRetrouveSonRdvAvecSaCleDeSuiviEtSeulementAvecElle() throws Exception {
+        MvcResult cree = creer(jourOuvre(1), "08:00:00", "Héry Rakoto", "0341234567");
+        String cle = extraire(cree, "cleSuivi");
+        assertTrue(cle.matches("CF-[A-HJKMNP-Z2-9]{4}-[A-HJKMNP-Z2-9]{4}"), cle);
+        assertEquals(cle, rdvs.findAll().get(0).getCleSuivi());
+        // la clé se tape avec ou sans tirets, en minuscules : le motif (information de santé) n'est jamais renvoyé
+        for (String saisie : new String[]{cle, cle.toLowerCase(), cle.replace("-", ""), cle.substring(3)}) {
+            mvc.perform(get("/api/rdv/suivi/" + saisie)).andExpect(status().isOk())
+                    .andExpect(jsonPath("$.nomClient").value("Héry Rakoto")).andExpect(jsonPath("$.cleSuivi").value(cle))
+                    .andExpect(jsonPath("$.motif").doesNotExist());
+        }
+        // adresse à part : les clés fausses comptent dans la limite de sa propre adresse (voir le test suivant)
+        org.springframework.test.web.servlet.request.RequestPostProcessor ailleurs = r -> { r.setRemoteAddr("10.20.30.41"); return r; };
+        mvc.perform(get("/api/rdv/suivi/CF-AAAA-BBBB").with(ailleurs)).andExpect(status().isNotFound());
+        mvc.perform(get("/api/rdv/suivi/n-importe-quoi").with(ailleurs)).andExpect(status().isNotFound());
+        // la clé donne aussi le droit de télécharger le reçu et d'annuler, sans session
+        String id = extraire(cree, "id");
+        mvc.perform(get("/api/rdv/" + id + "/pdf").header("X-RDV-Access-Token", cle)).andExpect(status().isOk());
+        mvc.perform(get("/api/rdv/" + id + "/pdf").header("X-RDV-Access-Token", "CF-AAAA-BBBB")).andExpect(status().isForbidden());
+        mvc.perform(put("/api/rdv/" + id + "/annuler").header("X-RDV-Access-Token", "CF-AAAA-BBBB")).andExpect(status().isForbidden());
+        mvc.perform(put("/api/rdv/" + id + "/annuler").header("X-RDV-Access-Token", cle.toLowerCase())).andExpect(status().isOk())
+                .andExpect(jsonPath("$.statut").value("ANNULE"));
+        // chaque rendez-vous a sa propre clé
+        MvcResult autre = creer(jourOuvre(5), "09:00:00", "Zo Andry", "0329988776");
+        assertNotEquals(cle, extraire(autre, "cleSuivi"));
+    }
+
+    private RendezVous rdvDans(java.time.Duration delai, String cle) {
+        java.time.LocalDateTime debut = java.time.LocalDateTime.now(ZONE).plus(delai);
+        RendezVous r = new RendezVous();
+        r.setNomClient("Patient " + cle);
+        r.setAgeClient(30);
+        r.setTelephoneClient("0341234567");
+        r.setDateRdv(debut.toLocalDate());
+        r.setHeureRdv(debut.toLocalTime().withSecond(0).withNano(0));
+        r.setStatut(StatutRDV.CONFIRME);
+        r.setCleSuivi(cle);
+        return rdvs.save(r);
+    }
+
+    @Test
+    void lePatientNePeutPlusAnnulerAMoinsDeDeuxHeuresMaisLePersonnelSi() throws Exception {
+        RendezVous proche = rdvDans(java.time.Duration.ofMinutes(100), "CF-ZZZZ-3333");
+        RendezVous lointain = rdvDans(java.time.Duration.ofMinutes(150), "CF-ZZZZ-4444");
+        mvc.perform(put("/api/rdv/" + proche.getId() + "/annuler").header("X-RDV-Access-Token", "CF-ZZZZ-3333"))
+                .andExpect(status().isBadRequest()).andExpect(jsonPath("$.message").value(containsString("moins de 2 heures")));
+        assertEquals(StatutRDV.CONFIRME, rdvs.findById(proche.getId()).orElseThrow().getStatut());
+        // le personnel n'est pas concerné, et au-delà de 2 heures le patient peut annuler
+        mvc.perform(put("/api/rdv/" + proche.getId() + "/annuler").header("Authorization", secretaire)).andExpect(status().isOk());
+        mvc.perform(put("/api/rdv/" + lointain.getId() + "/annuler").header("X-RDV-Access-Token", "CF-ZZZZ-4444"))
+                .andExpect(status().isOk()).andExpect(jsonPath("$.statut").value("ANNULE"));
+    }
+
+    @Test
+    void lesEssaisDeClesIncorrectesSontLimitesParAdresse() throws Exception {
+        String cle = extraire(creer(jourOuvre(1), "08:00:00", "Héry Rakoto", "0341234567"), "cleSuivi");
+        org.springframework.test.web.servlet.request.RequestPostProcessor depuis = r -> { r.setRemoteAddr("10.20.30.40"); return r; };
+        for (int i = 0; i < 10; i++) mvc.perform(get("/api/rdv/suivi/CF-ZZZZ-" + (2222 + i)).with(depuis)).andExpect(status().isNotFound());
+        // après dix clés fausses, même la bonne clé est refusée un moment pour cette adresse...
+        mvc.perform(get("/api/rdv/suivi/" + cle).with(depuis)).andExpect(status().isTooManyRequests());
+        // ... mais pas pour les autres visiteurs
+        mvc.perform(get("/api/rdv/suivi/" + cle)).andExpect(status().isOk());
+    }
+
+    @Test
+    void lesRdvDejaEnregistresRecoiventUneCleAuDemarrage() throws Exception {
+        jdbc.update("insert into rendez_vous (nom_client, age_client, telephone_client, date_rdv, heure_rdv, statut, date_creation, supprime) values ('Sans Cle', 30, '0341111111', current_date + 40, '09:00', 'EN_ATTENTE', now(), false)");
+        assertTrue(rendezVousService.attribuerClesManquantes() >= 1);
+        String cle = jdbc.queryForObject("select cle_suivi from rendez_vous where nom_client = 'Sans Cle'", String.class);
+        assertNotNull(cle);
+        mvc.perform(get("/api/rdv/suivi/" + cle)).andExpect(status().isOk()).andExpect(jsonPath("$.nomClient").value("Sans Cle"));
+        assertEquals(0, rendezVousService.attribuerClesManquantes(), "une seconde passe ne change plus rien");
     }
 
     @Test
@@ -481,8 +563,8 @@ class FonctionnalitesTests {
 
     @Test
     void personnelVoitLeMotifDansMesRdvMaisPasLesVisiteurs() throws Exception {
-        creer(jourOuvre(1), "10:00:00", "Motif Patient", "0343333333");
-        mvc.perform(get("/api/rdv/recherche").param("q", "0343333333")).andExpect(jsonPath("$[0].motif").doesNotExist());
+        String cle = extraire(creer(jourOuvre(1), "10:00:00", "Motif Patient", "0343333333"), "cleSuivi");
+        mvc.perform(get("/api/rdv/suivi/" + cle)).andExpect(jsonPath("$.motif").doesNotExist());
         mvc.perform(get("/api/rdv/recherche").param("q", "0343333333").header("Authorization", secretaire)).andExpect(jsonPath("$[0].motif").value("Suivi"));
     }
 
@@ -533,14 +615,14 @@ class FonctionnalitesTests {
     void rechercheParNomDesNomsCourtsEtDesAccents() throws Exception {
         creer(jourOuvre(1), "08:00:00", "bolo", "0341111111");      // nom d'un seul mot, très court
         creer(jourOuvre(1), "09:00:00", "Éloïse Andriamampianina", "0342222222");
-        mvc.perform(get("/api/rdv/recherche").param("q", "bolo")).andExpect(jsonPath("$.length()").value(1));
-        mvc.perform(get("/api/rdv/recherche").param("q", "eloise")).andExpect(jsonPath("$.length()").value(1));
-        mvc.perform(get("/api/rdv/recherche").param("q", "ANDRIAM")).andExpect(jsonPath("$.length()").value(1));
-        mvc.perform(get("/api/rdv/recherche").param("q", "loise")).andExpect(jsonPath("$.length()").value(0)); // début de mot, pas milieu
+        mvc.perform(get("/api/rdv/recherche").param("q", "bolo").header("Authorization", secretaire)).andExpect(jsonPath("$.length()").value(1));
+        mvc.perform(get("/api/rdv/recherche").param("q", "eloise").header("Authorization", secretaire)).andExpect(jsonPath("$.length()").value(1));
+        mvc.perform(get("/api/rdv/recherche").param("q", "ANDRIAM").header("Authorization", secretaire)).andExpect(jsonPath("$.length()").value(1));
+        mvc.perform(get("/api/rdv/recherche").param("q", "loise").header("Authorization", secretaire)).andExpect(jsonPath("$.length()").value(0)); // début de mot, pas milieu
     }
 
     @Test
-    void unVisiteurNeRetrouveParNomQueLesRdvAVenirEtRecentsMaisLePersonnelVoitToutEtLeNumeroDonneToutLHistorique() throws Exception {
+    void lePersonnelRetrouveAussiLesAnciensRdvParNomEtParNumero() throws Exception {
         RendezVous ancien = new RendezVous();
         ancien.setNomClient("Ancienne Patiente");
         ancien.setAgeClient(30);
@@ -549,9 +631,8 @@ class FonctionnalitesTests {
         ancien.setHeureRdv(LocalTime.of(9, 0));
         ancien.setStatut(StatutRDV.TERMINE);
         rdvs.save(ancien);
-        mvc.perform(get("/api/rdv/recherche").param("q", "ancienne")).andExpect(jsonPath("$.length()").value(0));
         mvc.perform(get("/api/rdv/recherche").param("q", "ancienne").header("Authorization", secretaire)).andExpect(jsonPath("$.length()").value(1));
-        mvc.perform(get("/api/rdv/recherche").param("q", "034 55 555 55")).andExpect(jsonPath("$.length()").value(1));
+        mvc.perform(get("/api/rdv/recherche").param("q", "034 55 555 55").header("Authorization", secretaire)).andExpect(jsonPath("$.length()").value(1));
     }
 
     @Test
@@ -617,7 +698,7 @@ class FonctionnalitesTests {
         assertEquals("Suivi médical de votre bébé", jdbc.queryForObject("select description from service where nom = 'Échographie'", String.class));
         assertEquals("0343462622", jdbc.queryForObject("select telephone_client from rendez_vous where nom_client = 'Patient Ancien'", String.class));
         // la recherche par numéro retrouve ce patient quel que soit le format tapé
-        mvc.perform(get("/api/rdv/recherche").param("q", "034 34 626 22")).andExpect(jsonPath("$.length()").value(1));
+        mvc.perform(get("/api/rdv/recherche").param("q", "034 34 626 22").header("Authorization", secretaire)).andExpect(jsonPath("$.length()").value(1));
         assertEquals(0, reparateur.reparerTextes(), "une seconde passe ne change plus rien");
     }
 
@@ -835,13 +916,15 @@ class FonctionnalitesTests {
 
     @Test
     void deuxConfirmations_lePersonnelAccepte_puisLeSuperAdminConfirme() throws Exception {
-        String id = extraire(creer(jourOuvre(1), "09:30:00", "Double Confirmation", "0341111111"), "id");
+        MvcResult cree = creer(jourOuvre(1), "09:30:00", "Double Confirmation", "0341111111");
+        String id = extraire(cree, "id");
+        String cle = extraire(cree, "cleSuivi");
         attribuerA(id, "test.medecin@casafami.test", 200);
         // seule la demande du patient a prévenu le super administrateur (l'attribution est son propre geste)
         mvc.perform(get("/api/notifications").header("Authorization", admin)).andExpect(jsonPath("$.nonLues").value(1))
                 .andExpect(jsonPath("$.notifications[0].type").value("RDV_NOUVEAU"));
         // le patient ne voit aucun nom tant que le cabinet n'a pas confirmé
-        mvc.perform(get("/api/rdv/telephone/0341111111")).andExpect(status().isOk()).andExpect(jsonPath("$[0].praticienNom").isEmpty());
+        mvc.perform(get("/api/rdv/suivi/" + cle)).andExpect(status().isOk()).andExpect(jsonPath("$.praticienNom").isEmpty());
         // le super administrateur ne peut pas confirmer avant la personne attribuée
         mvc.perform(put("/api/rdv/" + id + "/confirmer").header("Authorization", admin)).andExpect(status().isConflict())
                 .andExpect(jsonPath("$.message").value(containsString("n'a pas encore accepté")));
@@ -858,7 +941,7 @@ class FonctionnalitesTests {
         // 2e confirmation : le super administrateur -> le rendez-vous est confirmé, la personne en est informée, le patient voit son nom
         mvc.perform(put("/api/rdv/" + id + "/confirmer").header("Authorization", admin)).andExpect(status().isOk()).andExpect(jsonPath("$.statut").value("CONFIRME"));
         mvc.perform(get("/api/notifications").header("Authorization", medecin)).andExpect(jsonPath("$.notifications[0].type").value("RDV_CONFIRME"));
-        mvc.perform(get("/api/rdv/telephone/0341111111")).andExpect(jsonPath("$[0].praticienNom").value("Test MEDECIN"));
+        mvc.perform(get("/api/rdv/suivi/" + cle)).andExpect(jsonPath("$.praticienNom").value("Test MEDECIN"));
         // changer de personne remet l'acceptation à zéro
         mvc.perform(put("/api/rdv/" + id + "/praticien").header("Authorization", admin).contentType(MediaType.APPLICATION_JSON)
                 .content("{\"praticienId\":" + idDe("test.sf@casafami.test") + "}")).andExpect(status().isOk()).andExpect(jsonPath("$.personnelConfirme").value(false));

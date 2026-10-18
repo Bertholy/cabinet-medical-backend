@@ -1,6 +1,7 @@
 package com.cabinet.cabinet.config;
 
 import com.cabinet.cabinet.service.PlanningService;
+import com.cabinet.cabinet.service.RendezVousService;
 import lombok.RequiredArgsConstructor;
 import lombok.extern.slf4j.Slf4j;
 import org.springframework.boot.ApplicationArguments;
@@ -16,7 +17,8 @@ import org.springframework.stereotype.Component;
  *    créer d'index partiel, et les fichiers db/migration/*.sql ne sont pas exécutés (Flyway n'est pas installé).
  *    L'ancien index « un seul rendez-vous par créneau pour tout le cabinet » est supprimé : la capacité d'un créneau
  *    est désormais un paramètre du planning, vérifié par l'application sous verrou.
- * 2. Horaires d'ouverture par défaut (7 jours sur 7, 8h–11h et 14h–17h, créneaux de 30 min, un patient à la fois).
+ * 2. Clé de suivi pour les rendez-vous créés avant son introduction.
+ * 3. Horaires d'ouverture par défaut (7 jours sur 7, 8h–11h et 14h–17h, créneaux de 30 min, un patient à la fois).
  *
  * Un rendez-vous annulé ou placé dans la corbeille ne bloque jamais son créneau.
  */
@@ -27,6 +29,7 @@ import org.springframework.stereotype.Component;
 public class DatabaseSchemaInitializer implements ApplicationRunner {
     private final JdbcTemplate jdbc;
     private final PlanningService planning;
+    private final RendezVousService rendezVous;
 
     @Override
     public void run(ApplicationArguments args) {
@@ -40,6 +43,8 @@ public class DatabaseSchemaInitializer implements ApplicationRunner {
             // la vérification applicative continue de refuser les doublons.
             log.warn("Impossible de créer l'index unique des créneaux par praticien : {}", e.getMessage());
         }
+        int sansCle = rendezVous.attribuerClesManquantes();
+        if (sansCle > 0) log.info("{} rendez-vous existants ont reçu leur clé de suivi.", sansCle);
         planning.initialiserParDefaut();
         if (planning.migrerAncienPlanningParDefaut()) log.info("Planning mis à jour : le cabinet reçoit désormais les 7 jours de la semaine.");
     }

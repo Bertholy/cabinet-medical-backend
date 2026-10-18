@@ -13,7 +13,7 @@ import java.util.Set;
  * jamais la base. Les champs techniques (mot de passe, adresses, identifiants, fichiers) ne sont jamais touchés.
  */
 public class TextRepairListener {
-    private static final Set<String> IGNORES = Set.of("motDePasse", "clientAccessTokenHash", "email", "imageUrl", "photoUrl", "cle", "telephone", "telephoneClient");
+    private static final Set<String> IGNORES = Set.of("motDePasse", "clientAccessTokenHash", "cleSuivi","email", "imageUrl", "photoUrl", "cle", "telephone", "telephoneClient");
 
     @PrePersist
     @PreUpdate

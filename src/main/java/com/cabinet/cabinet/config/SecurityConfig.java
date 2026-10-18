@@ -39,7 +39,7 @@ public class SecurityConfig {
     private List<String> originesAutorisees;
 
     @Bean
-    public SecurityFilterChain securityFilterChain(HttpSecurity http) throws Exception {
+    SecurityFilterChain securityFilterChain(HttpSecurity http) throws Exception {
         http
             .csrf(csrf -> csrf.disable())
             .cors(cors -> cors.configurationSource(corsConfigurationSource()))
@@ -88,7 +88,7 @@ public class SecurityConfig {
                 // ============ CLIENT : PRISE DE RDV (pour le personnel, RDV_CREER est vérifiée dans le contrôleur) ============
                 .requestMatchers(HttpMethod.POST, "/api/rdv", "/api/rendez-vous").permitAll()
                 .requestMatchers(HttpMethod.GET, "/api/rdv/creneaux", "/api/rdv/creneaux/**", "/api/rendez-vous/creneaux", "/api/rendez-vous/creneaux/**").permitAll()
-                .requestMatchers(HttpMethod.GET, "/api/rdv/telephone/**", "/api/rdv/recherche", "/api/rendez-vous/recherche").permitAll()
+                .requestMatchers(HttpMethod.GET, "/api/rdv/suivi/*", "/api/rendez-vous/suivi/*").permitAll()
                 .requestMatchers(HttpMethod.GET, "/api/rdv/form-options", "/api/rendez-vous/form-options").permitAll()
                 .requestMatchers(HttpMethod.GET, "/api/rdv/*/pdf", "/api/rendez-vous/*/pdf").permitAll()
                 .requestMatchers(HttpMethod.PUT, "/api/rdv/*/annuler", "/api/rendez-vous/*/annuler").permitAll()
@@ -123,24 +123,24 @@ public class SecurityConfig {
     }
 
     @Bean
-    public PasswordEncoder passwordEncoder() {
+    PasswordEncoder passwordEncoder() {
         return new BCryptPasswordEncoder();
     }
 
     @Bean
-    public AuthenticationProvider authenticationProvider() {
+    AuthenticationProvider authenticationProvider() {
         DaoAuthenticationProvider authProvider = new DaoAuthenticationProvider(userDetailsService);
         authProvider.setPasswordEncoder(passwordEncoder());
         return authProvider;
     }
 
     @Bean
-    public AuthenticationManager authenticationManager(AuthenticationConfiguration config) throws Exception {
+    AuthenticationManager authenticationManager(AuthenticationConfiguration config) throws Exception {
         return config.getAuthenticationManager();
     }
 
     @Bean
-    public CorsConfigurationSource corsConfigurationSource() {
+    CorsConfigurationSource corsConfigurationSource() {
         CorsConfiguration config = new CorsConfiguration();
         config.setAllowedOrigins(originesAutorisees);
         config.setAllowedMethods(List.of("GET", "POST", "PUT", "PATCH", "DELETE", "OPTIONS"));

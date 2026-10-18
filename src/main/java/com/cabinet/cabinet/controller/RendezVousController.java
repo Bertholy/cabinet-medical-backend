@@ -153,16 +153,22 @@ public class RendezVousController {
     @DeleteMapping("/corbeille")
     public ResponseEntity<Void> viderCorbeille() { rendezVousService.viderCorbeille(); return ResponseEntity.noContent().build(); }
 
-    // ============ RDV D'UN CLIENT PAR TÉLÉPHONE ============
+    // ============ RDV D'UN CLIENT PAR TÉLÉPHONE (personnel) ============
     @GetMapping("/telephone/{telephone}")
     public ResponseEntity<List<RendezVousResponseDTO>> getParTelephone(@PathVariable String telephone) {
         return ResponseEntity.ok(rendezVousService.getRendezVousParTelephone(telephone));
     }
 
-    // ============ RECHERCHE PAR NOM OU NUMÉRO (page « Mes RDV ») ============
+    // ============ RECHERCHE PAR NOM OU NUMÉRO (personnel : la sécurité exige une session) ============
     @GetMapping("/recherche")
     public ResponseEntity<List<RendezVousResponseDTO>> rechercher(@RequestParam String q, Authentication authentication) {
         return ResponseEntity.ok(rendezVousService.rechercherPourClient(q, isInternal(authentication)));
+    }
+
+    // ============ PAGE PUBLIQUE « MES RDV » : le patient retrouve son rendez-vous avec sa clé de suivi ============
+    @GetMapping("/suivi/{cle}")
+    public ResponseEntity<RendezVousResponseDTO> suivi(@PathVariable String cle, jakarta.servlet.http.HttpServletRequest http) {
+        return ResponseEntity.ok(rendezVousService.retrouverParCle(cle, http.getRemoteAddr()));
     }
 
     // ============ RDV PAR STATUT (médecin) ============

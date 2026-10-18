@@ -58,6 +58,10 @@ public class RendezVousService {
     /** Un même nom ne peut pas faire deux réservations en ligne à moins de N jours d'intervalle (0 = règle désactivée). */
     @org.springframework.beans.factory.annotation.Value("${app.reservation.delai-jours:3}")
     private int delaiEntreReservationsJours;
+
+    /** Un patient ne peut plus annuler son rendez-vous dans les N heures qui précèdent (0 = règle désactivée). */
+    @org.springframework.beans.factory.annotation.Value("${app.reservation.annulation-min-heures:2}")
+    private int delaiAnnulationHeures;
     private static final SecureRandom SECURE_RANDOM = new SecureRandom();
     private static final ZoneId CABINET_ZONE = ZoneId.of("Indian/Antananarivo");
 
@@ -125,6 +129,7 @@ public class RendezVousService {
         appliquerChamps(rdv, dto);
         String accessToken = createAccessToken();
         rdv.setClientAccessTokenHash(hashAccessToken(accessToken));
+        rdv.setCleSuivi(genererCleSuivi());
         // statut et dateCreation seront mis par @PrePersist
 
         // 4. Sauvegarder
@@ -334,14 +339,74 @@ public class RendezVousService {
         audit.log("CORBEILLE_VIDEE", "RendezVous", null, aSupprimer.size() + " rendez-vous supprimés définitivement");
     }
 
-    // ============ RECHERCHE POUR LE CLIENT (téléphone OU nom) ============
+    // ============ CLÉ DE SUIVI : la seule façon pour un patient de retrouver son rendez-vous ============
+    private static final String ALPHABET_CLE = "ABCDEFGHJKMNPQRSTUVWXYZ23456789"; // sans I, L, O, 0, 1 : pas de confusion à la lecture
+    private static final int MAX_CLES_FAUSSES = 10;
+    private static final java.time.Duration FENETRE_CLES_FAUSSES = java.time.Duration.ofMinutes(15);
+    private final Map<String, java.util.Deque<java.time.Instant>> clesFaussesParAdresse = new java.util.concurrent.ConcurrentHashMap<>();
+
+    /** Nouvelle clé « CF-XXXX-XXXX » (8 caractères tirés au hasard : impossible à deviner) qu'aucun autre rendez-vous n'utilise. */
+    private String genererCleSuivi() {
+        String cle;
+        do {
+            StringBuilder lettres = new StringBuilder(8);
+            for (int i = 0; i < 8; i++) lettres.append(ALPHABET_CLE.charAt(SECURE_RANDOM.nextInt(ALPHABET_CLE.length())));
+            cle = "CF-" + lettres.substring(0, 4) + "-" + lettres.substring(4);
+        } while (rendezVousRepository.existsByCleSuivi(cle));
+        return cle;
+    }
+
+    /** Forme canonique d'une clé saisie (majuscules, avec ou sans tirets, espaces ou préfixe « CF ») ; null si elle ne peut pas être une clé. */
+    static String normaliserCle(String saisie) {
+        String s = saisie == null ? "" : saisie.toUpperCase(java.util.Locale.ROOT).replaceAll("[^A-Z0-9]", "");
+        if (s.length() == 10 && s.startsWith("CF")) s = s.substring(2);
+        if (s.length() != 8) return null;
+        for (char c : s.toCharArray()) if (ALPHABET_CLE.indexOf(c) < 0) return null;
+        return "CF-" + s.substring(0, 4) + "-" + s.substring(4);
+    }
+
+    /** Donne une clé aux rendez-vous créés avant son introduction (le personnel peut la lire dans le tableau de bord). */
+    @Transactional
+    public int attribuerClesManquantes() {
+        List<RendezVous> sansCle = rendezVousRepository.findByCleSuiviIsNull();
+        for (RendezVous rdv : sansCle) {
+            rdv.setCleSuivi(genererCleSuivi());
+            rendezVousRepository.saveAndFlush(rdv);
+        }
+        return sansCle.size();
+    }
+
     /**
-     * Le client retrouve ses rendez-vous avec son numéro de téléphone (tout format) ou son nom.
-     *
-     * Par nom : il suffit de taper un ou plusieurs mots, dans n'importe quel ordre, avec ou sans accents ni majuscules
+     * Page publique « Mes RDV » : le patient saisit sa clé, jamais son nom ni son numéro (qui permettraient de fouiller dans les rendez-vous des autres).
+     * Les essais ratés sont comptés par adresse : au-delà de 10 en 15 minutes, la recherche est suspendue.
+     * Le motif (information de santé) n'est pas renvoyé.
+     */
+    @Transactional(readOnly = true)
+    public RendezVousResponseDTO retrouverParCle(String saisie, String adresse) {
+        String origine = adresse == null ? "?" : adresse;
+        java.util.Deque<java.time.Instant> echecs = clesFaussesParAdresse.computeIfAbsent(origine, k -> new java.util.ArrayDeque<>());
+        synchronized (echecs) {
+            java.time.Instant limite = java.time.Instant.now().minus(FENETRE_CLES_FAUSSES);
+            while (!echecs.isEmpty() && echecs.peekFirst().isBefore(limite)) echecs.pollFirst();
+            if (echecs.size() >= MAX_CLES_FAUSSES) {
+                throw new ResponseStatusException(HttpStatus.TOO_MANY_REQUESTS, "Trop d'essais avec une clé incorrecte. Réessayez dans quelques minutes.");
+            }
+        }
+        String cle = normaliserCle(saisie);
+        RendezVous trouve = cle == null ? null : rendezVousRepository.findActifParCleSuivi(cle).orElse(null);
+        if (trouve == null) {
+            synchronized (echecs) { echecs.addLast(java.time.Instant.now()); }
+            if (clesFaussesParAdresse.size() > 5000) clesFaussesParAdresse.clear(); // garde-fou mémoire
+            throw new RendezVousIntrouvableException("Aucun rendez-vous ne correspond à cette clé. Vérifiez-la (elle ressemble à CF-7K3M-9QX2).");
+        }
+        return toClientLookupDTO(trouve);
+    }
+
+    // ============ RECHERCHE DU PERSONNEL (téléphone OU nom) ============
+    /**
+     * Réservée au personnel connecté : les patients passent par leur clé de suivi (retrouverParCle).
+     * Numéro de téléphone (tout format) ou nom : un ou plusieurs mots, dans n'importe quel ordre, avec ou sans accents ni majuscules
      * (« hery », « rakoto hery », « Héry Rakoto »). Chaque mot doit correspondre au début d'un mot du nom enregistré.
-     * Pour protéger les patientes, un visiteur retrouve ainsi seulement les rendez-vous à venir et ceux des 30 derniers jours
-     * (l'historique complet reste accessible avec le numéro de téléphone) ; le personnel connecté voit tout.
      */
     @Transactional(readOnly = true)
     public List<RendezVousResponseDTO> rechercherPourClient(String q, boolean personnel) {
@@ -601,6 +666,12 @@ public class RendezVousService {
         if (rdv.getStatut() == StatutRDV.TERMINE) {
             throw new StatutInvalideException("Impossible d'annuler un RDV terminé");
         }
+        // Le patient ne peut plus annuler lui-même dans les dernières heures : le créneau ne serait plus rempli. Le personnel n'est pas concerné.
+        if (!utilisateurInterne && delaiAnnulationHeures > 0
+                && !LocalDateTime.now(CABINET_ZONE).isBefore(rdv.getDateRdv().atTime(rdv.getHeureRdv()).minusHours(delaiAnnulationHeures))) {
+            throw new StatutInvalideException("Annulation impossible à moins de " + delaiAnnulationHeures
+                    + " heures du rendez-vous. Contactez le cabinet pour l'annuler.");
+        }
 
         rdv.setStatut(StatutRDV.ANNULE);
         RendezVous updated = rendezVousRepository.save(rdv);
@@ -667,6 +738,10 @@ public class RendezVousService {
 
     private void verifierAcces(RendezVous rdv, String token, boolean utilisateurInterne) {
         if (utilisateurInterne) return;
+        // Le patient prouve qu'il est bien le titulaire avec la clé de suivi (ou, pour un ancien rendez-vous, avec le jeton remis à la création).
+        String cle = normaliserCle(token);
+        if (cle != null && rdv.getCleSuivi() != null && MessageDigest.isEqual(
+                rdv.getCleSuivi().getBytes(StandardCharsets.US_ASCII), cle.getBytes(StandardCharsets.US_ASCII))) return;
         String attendu = rdv.getClientAccessTokenHash();
         if (token == null || attendu == null || !MessageDigest.isEqual(
                 attendu.getBytes(StandardCharsets.US_ASCII), hashAccessToken(token).getBytes(StandardCharsets.US_ASCII))) {
@@ -757,6 +832,7 @@ public class RendezVousService {
         dto.setServiceNom(rdv.getService() == null ? null : rdv.getService().getNom());
         dto.setPraticienId(rdv.getPraticien() == null ? null : rdv.getPraticien().getId());
         dto.setPraticienNom(rdv.getPraticien() == null ? null : rdv.getPraticien().getNom());
+        dto.setCleSuivi(rdv.getCleSuivi());
         dto.setPersonnelConfirme(rdv.getPersonnelConfirmeLe() != null);
         dto.setPersonnelConfirmeLe(rdv.getPersonnelConfirmeLe());
         dto.setDateRdv(rdv.getDateRdv());

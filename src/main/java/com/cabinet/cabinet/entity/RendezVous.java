@@ -51,6 +51,10 @@ public class RendezVous {
     @Column(name = "client_access_token_hash", length = 64)
     private String clientAccessTokenHash;
 
+    /** Clé de suivi unique (« CF-7K3M-9QX2 ») remise au patient à la prise de rendez-vous : elle sert à retrouver, annuler et télécharger le reçu. */
+    @Column(name = "cle_suivi", length = 20, unique = true)
+    private String cleSuivi;
+
     @Enumerated(EnumType.STRING)
     @Column(nullable = false, length = 20)
     private StatutRDV statut;

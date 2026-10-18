@@ -45,7 +45,7 @@ class ReservationsTests extends BaseApiTest {
     void unMemeNomNePeutPasReserverDeuxFoisAvantTroisJours() throws Exception {
         reserver("Rakoto Jean", "0341111111", "08:00:00", null).andExpect(status().isCreated());
         reserver("Rakoto Jean", "0342222222", "08:30:00", null)
-                .andExpect(status().isUnprocessableEntity())
+                .andExpect(status().isUnprocessableContent())
                 .andExpect(jsonPath("$.code").value("RESERVATION_RECENTE"))
                 .andExpect(jsonPath("$.message", containsString("Une réservation existe déjà au nom de")))
                 .andExpect(jsonPath("$.disponibleLe").exists()).andExpect(jsonPath("$.dateRdvExistant").exists()).andExpect(jsonPath("$.heureRdvExistant").value("08:00"));
@@ -57,7 +57,7 @@ class ReservationsTests extends BaseApiTest {
     void lesMajusculesLesAccentsLOrdreEtLesEspacesNeContournentPasLaRegle() throws Exception {
         reserver("Rakoto Jean", "0341111111", "08:00:00", null).andExpect(status().isCreated());
         for (String variante : new String[]{"rakoto jean", "JEAN RAKOTO", "  Jéan   Rakoto ", "Rakoto-Jean"})
-            reserver(variante, "0343333333", "09:00:00", null).andExpect(status().isUnprocessableEntity());
+            reserver(variante, "0343333333", "09:00:00", null).andExpect(status().isUnprocessableContent());
         // un autre nom, même avec le même téléphone, reste possible (une famille partage souvent un numéro)
         reserver("Rasoa Marie", "0341111111", "09:30:00", null).andExpect(status().isCreated());
     }
