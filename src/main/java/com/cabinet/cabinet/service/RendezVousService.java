@@ -56,7 +56,7 @@ public class RendezVousService {
     private final JdbcTemplate jdbc;
 
     /** Un même nom ne peut pas faire deux réservations en ligne à moins de N jours d'intervalle (0 = règle désactivée). */
-    @org.springframework.beans.factory.annotation.Value("${app.reservation.delai-jours:3}")
+    @org.springframework.beans.factory.annotation.Value("${app.reservation.delai-jours:7}")
     private int delaiEntreReservationsJours;
 
     /** Un patient ne peut plus annuler son rendez-vous dans les N heures qui précèdent (0 = règle désactivée). */
@@ -71,25 +71,31 @@ public class RendezVousService {
 
     // ============ CRÉER UN RDV ============
     /**
-     * Règle de la réservation en ligne : un nom qui a déjà une réservation active (non annulée) faite il y a moins de 3 jours ne peut pas en faire une
-     * seconde avant la fin de ce délai ; annuler la première la libère. Les noms sont comparés sans tenir compte des majuscules, des accents,
-     * de l'ordre des mots ni des espaces en trop (« rakoto  Jean » = « Jean Rakoto »). Le personnel n'est pas concerné (voir le contrôleur).
+     * Règle de la réservation en ligne : un nom OU un numéro de téléphone qui a déjà une réservation active (non annulée) faite il y a moins de 7 jours
+     * ne peut pas en faire une seconde avant la fin de ce délai ; annuler la première la libère. Les noms sont comparés sans tenir compte des majuscules,
+     * des accents, de l'ordre des mots ni des espaces en trop (« rakoto  Jean » = « Jean Rakoto »), les numéros quel que soit leur format
+     * (« 034 12 345 67 » = « 0341234567 » = « 34 12 345 67 »). Le personnel n'est pas concerné (voir le contrôleur).
      */
     @Transactional(readOnly = true)
-    public void verifierDelaiEntreReservations(String nomClient) {
-        if (delaiEntreReservationsJours <= 0 || nomClient == null) return;
+    public void verifierDelaiEntreReservations(String nomClient, String telephoneClient) {
+        if (delaiEntreReservationsJours <= 0) return;
         LocalDateTime maintenant = LocalDateTime.now(CABINET_ZONE);
-        String cle = cleDeNom(nomClient);
-        if (cle.isEmpty()) return;
+        String cleNom = nomClient == null ? "" : cleDeNom(nomClient);
+        String cleTelephone = PhoneUtils.searchKey(telephoneClient);
+        if (cleNom.isEmpty() && cleTelephone.isEmpty()) return;
         for (RendezVous existant : rendezVousRepository.findReservationsActivesDepuis(maintenant.minusDays(delaiEntreReservationsJours))) {
-            if (!cle.equals(cleDeNom(existant.getNomClient()))) continue;
+            boolean memeNom = !cleNom.isEmpty() && cleNom.equals(cleDeNom(existant.getNomClient()));
+            boolean memeTelephone = !cleTelephone.isEmpty() && cleTelephone.equals(PhoneUtils.searchKey(existant.getTelephoneClient()));
+            if (!memeNom && !memeTelephone) continue;
             LocalDateTime disponibleLe = existant.getDateCreation().plusDays(delaiEntreReservationsJours);
+            String rdvExistant = "(rendez-vous du " + existant.getDateRdv().format(java.time.format.DateTimeFormatter.ofPattern("dd/MM/yyyy")) + " à "
+                    + existant.getHeureRdv().format(java.time.format.DateTimeFormatter.ofPattern("HH:mm")) + ")";
+            String fin = " Une nouvelle réservation sera possible à partir du "
+                    + disponibleLe.format(java.time.format.DateTimeFormatter.ofPattern("dd/MM/yyyy 'à' HH:mm")) + ", ou dès que la première est annulée.";
             throw new com.cabinet.cabinet.exception.ReservationRecenteException(
-                    "Une réservation existe déjà au nom de « " + existant.getNomClient().trim() + " » (rendez-vous du "
-                            + existant.getDateRdv().format(java.time.format.DateTimeFormatter.ofPattern("dd/MM/yyyy")) + " à "
-                            + existant.getHeureRdv().format(java.time.format.DateTimeFormatter.ofPattern("HH:mm")) + "). Une nouvelle réservation sera possible à partir du "
-                            + disponibleLe.format(java.time.format.DateTimeFormatter.ofPattern("dd/MM/yyyy 'à' HH:mm")) + ", ou dès que la première est annulée.",
-                    disponibleLe, existant.getDateRdv(), existant.getHeureRdv());
+                    memeNom ? "Une réservation existe déjà au nom de « " + existant.getNomClient().trim() + " » " + rdvExistant + "." + fin
+                            : "Une réservation existe déjà avec ce numéro de téléphone " + rdvExistant + "." + fin,
+                    disponibleLe, existant.getDateRdv(), existant.getHeureRdv(), memeNom ? "NOM" : "TELEPHONE");
         }
     }
 

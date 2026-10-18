@@ -51,6 +51,7 @@ public class GlobalExceptionHandler extends ResponseEntityExceptionHandler {
         body.put("disponibleLe", ex.getDisponibleLe().toString());
         body.put("dateRdvExistant", ex.getDateRdvExistant().toString());
         body.put("heureRdvExistant", ex.getHeureRdvExistant().toString());
+        body.put("critere", ex.getCritere());
         return ResponseEntity.status(HttpStatus.UNPROCESSABLE_CONTENT).body(body);
     }
 
