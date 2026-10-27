@@ -43,6 +43,7 @@ class PermissionsTests extends BaseApiTest {
         for (Role r : PermissionService.ROLES_REGLABLES) permissions.retablirRole(r);
         exceptions.deleteAll();
         permissions.invalider();
+        notifications.deleteAll();   // les notifications de changement de droits ne doivent pas fausser les autres tests
     }
 
     private static String liste(String... codes) {
@@ -139,6 +140,34 @@ class PermissionsTests extends BaseApiTest {
         // tout remettre pour une personne
         mvc.perform(post("/api/admin/permissions/utilisateurs/" + idSageFemme + "/defauts").header("Authorization", admin)).andExpect(status().isOk());
         mvc.perform(get("/api/stats/synthese").header("Authorization", sageFemme)).andExpect(status().isForbidden());
+    }
+
+    @Test
+    void laPersonneEstPrevenueQuandUnAccesLuiEstAccordeOuRetire() throws Exception {
+        Long idSecretaire = idDe("test.secretaire@casafami.test");
+        mvc.perform(get("/api/notifications").header("Authorization", secretaire)).andExpect(jsonPath("$.nonLues").value(0));
+        // un droit accordé en plus : la secrétaire le lit dans sa cloche
+        mvc.perform(put("/api/admin/permissions/utilisateurs/" + idSecretaire).header("Authorization", admin).contentType(MediaType.APPLICATION_JSON)
+                .content("{\"code\":\"OCCUPATION_VOIR\",\"accorde\":true}")).andExpect(status().isOk());
+        mvc.perform(get("/api/notifications").header("Authorization", secretaire)).andExpect(jsonPath("$.nonLues").value(1))
+                .andExpect(jsonPath("$.notifications[0].type").value("ACCES_MODIFIE"))
+                .andExpect(jsonPath("$.notifications[0].titre").value("Nouvel accès"))
+                .andExpect(jsonPath("$.notifications[0].message", containsString("Vous pouvez maintenant voir l'occupation du personnel")));
+        // le même réglage répété ne change rien : pas de nouvelle notification
+        mvc.perform(put("/api/admin/permissions/utilisateurs/" + idSecretaire).header("Authorization", admin).contentType(MediaType.APPLICATION_JSON)
+                .content("{\"code\":\"OCCUPATION_VOIR\",\"accorde\":true}")).andExpect(status().isOk());
+        mvc.perform(get("/api/notifications").header("Authorization", secretaire)).andExpect(jsonPath("$.nonLues").value(1));
+        // les autres membres de l'équipe ne sont pas concernés
+        mvc.perform(get("/api/notifications").header("Authorization", medecin)).andExpect(jsonPath("$.nonLues").value(0));
+        // le droit retiré : elle en est aussi prévenue
+        mvc.perform(put("/api/admin/permissions/utilisateurs/" + idSecretaire).header("Authorization", admin).contentType(MediaType.APPLICATION_JSON)
+                .content("{\"code\":\"OCCUPATION_VOIR\",\"accorde\":null}")).andExpect(status().isOk());
+        mvc.perform(get("/api/notifications").header("Authorization", secretaire)).andExpect(jsonPath("$.nonLues").value(2))
+                .andExpect(jsonPath("$.notifications[0].titre").value("Accès retiré"));
+        // un réglage de rôle prévient chaque personne du rôle : la secrétaire perd la recherche de patients
+        definirRole("SECRETAIRE", Permissions.RDV_VOIR);
+        mvc.perform(get("/api/notifications").header("Authorization", secretaire)).andExpect(jsonPath("$.nonLues").value(3))
+                .andExpect(jsonPath("$.notifications[0].message", containsString("Vous ne pouvez plus")));
     }
 
     @Test

@@ -8,6 +8,7 @@ import com.cabinet.cabinet.repository.PermissionRoleRepository;
 import com.cabinet.cabinet.repository.PermissionUtilisateurRepository;
 import com.cabinet.cabinet.repository.UtilisateurRepository;
 import com.cabinet.cabinet.service.AuditService;
+import com.cabinet.cabinet.service.NotificationService;
 import lombok.RequiredArgsConstructor;
 import org.springframework.boot.ApplicationArguments;
 import org.springframework.boot.ApplicationRunner;
@@ -47,6 +48,7 @@ public class PermissionService implements ApplicationRunner {
     private final PermissionUtilisateurRepository surcharges;
     private final UtilisateurRepository utilisateurs;
     private final AuditService audit;
+    private final NotificationService notifications;
     private final Map<String, Entree> cache = new ConcurrentHashMap<>();
 
     private record Entree(Set<String> codes, long expireA) { }
@@ -129,6 +131,7 @@ public class PermissionService implements ApplicationRunner {
             Permissions.Definition d = Permissions.trouver(code).orElseThrow(() -> new ResponseStatusException(HttpStatus.BAD_REQUEST, "Permission inconnue : " + code));
             if (d.verrouille()) throw new ResponseStatusException(HttpStatus.BAD_REQUEST, "« " + d.libelle() + " » est réservée au super administrateur.");
         }
+        Map<Long, Set<String>> avant = droitsDe(utilisateurs.findByRoleIn(List.of(role)));
         List<String> ajouts = new java.util.ArrayList<>(), retraits = new java.util.ArrayList<>();
         for (Permissions.Definition d : Permissions.CATALOGUE) {
             boolean voulue = demandees.contains(d.code()) && !d.verrouille();
@@ -141,11 +144,13 @@ public class PermissionService implements ApplicationRunner {
         }
         invalider();
         audit.log("PERMISSIONS_ROLE", "Role", role.name(), "Rôle " + role + " — ajoutées : " + (ajouts.isEmpty() ? "aucune" : ajouts) + " — retirées : " + (retraits.isEmpty() ? "aucune" : retraits));
+        prevenir(avant);
     }
 
     @Transactional
     public void retablirRole(Role role) {
         verifierRole(role);
+        Map<Long, Set<String>> avant = droitsDe(utilisateurs.findByRoleIn(List.of(role)));
         for (Permissions.Definition d : Permissions.CATALOGUE) {
             PermissionRole ligne = roles.findByRoleAndCode(role, d.code()).orElseGet(() -> { PermissionRole n = new PermissionRole(); n.setRole(role); n.setCode(d.code()); return n; });
             ligne.setAccorde(d.parDefaut().contains(role));
@@ -153,6 +158,7 @@ public class PermissionService implements ApplicationRunner {
         }
         invalider();
         audit.log("PERMISSIONS_ROLE", "Role", role.name(), "Rôle " + role + " — droits d'origine rétablis");
+        prevenir(avant);
     }
 
     /** accorde : true = en plus du rôle, false = retiré malgré le rôle, null = selon le rôle (exception supprimée). */
@@ -162,6 +168,7 @@ public class PermissionService implements ApplicationRunner {
         if (u.getRole() == Role.SUPER_ADMIN) throw new ResponseStatusException(HttpStatus.BAD_REQUEST, "Le super administrateur a toujours tous les droits.");
         Permissions.Definition d = Permissions.trouver(code).orElseThrow(() -> new ResponseStatusException(HttpStatus.BAD_REQUEST, "Permission inconnue : " + code));
         if (d.verrouille() && Boolean.TRUE.equals(accorde)) throw new ResponseStatusException(HttpStatus.BAD_REQUEST, "« " + d.libelle() + " » est réservée au super administrateur.");
+        Map<Long, Set<String>> avant = droitsDe(List.of(u));
         var existante = surcharges.findDeUtilisateurEtCode(utilisateurId, code);
         if (accorde == null) existante.ifPresent(surcharges::delete);
         else {
@@ -171,14 +178,58 @@ public class PermissionService implements ApplicationRunner {
         }
         invalider();
         audit.log("PERMISSIONS_PERSONNE", "Utilisateur", utilisateurId, u.getEmail() + " — " + code + " : " + (accorde == null ? "selon le rôle" : accorde ? "accordée" : "retirée"));
+        prevenir(avant);
     }
 
     @Transactional
     public void retablirUtilisateur(Long utilisateurId) {
         Utilisateur u = utilisateurs.findById(utilisateurId).orElseThrow(() -> new ResponseStatusException(HttpStatus.NOT_FOUND, "Compte introuvable."));
+        Map<Long, Set<String>> avant = droitsDe(List.of(u));
         surcharges.supprimerDe(utilisateurId);
         invalider();
         audit.log("PERMISSIONS_PERSONNE", "Utilisateur", utilisateurId, u.getEmail() + " — exceptions supprimées (droits du rôle)");
+        prevenir(avant);
+    }
+
+    // ======================================================================== prévenir les personnes concernées
+
+    /** Droits réels de chaque personne avant une modification (le super administrateur a toujours tout : il n'est jamais concerné). */
+    private Map<Long, Set<String>> droitsDe(java.util.Collection<Utilisateur> personnes) {
+        Map<Long, Set<String>> droits = new LinkedHashMap<>();
+        for (Utilisateur u : personnes) if (u.getRole() != Role.SUPER_ADMIN) droits.put(u.getId(), de(u));
+        return droits;
+    }
+
+    /** Dépose dans la cloche de chaque personne ce qu'elle peut faire en plus ou ne peut plus faire, à comparer aux droits d'avant. */
+    private void prevenir(Map<Long, Set<String>> avant) {
+        String auteur = auteurCourant();
+        avant.forEach((id, anciens) -> utilisateurs.findById(id).ifPresent(u -> {
+            Set<String> actuels = de(u);
+            List<Permissions.Definition> gagnes = difference(actuels, anciens), perdus = difference(anciens, actuels);
+            if (!gagnes.isEmpty()) notifications.informer(u, "ACCES_MODIFIE", "Nouvel accès", phrase("Vous pouvez maintenant", gagnes), auteur, null);
+            if (!perdus.isEmpty()) notifications.informer(u, "ACCES_MODIFIE", "Accès retiré", phrase("Vous ne pouvez plus", perdus), auteur, null);
+        }));
+    }
+
+    private static List<Permissions.Definition> difference(Set<String> a, Set<String> b) {
+        return a.stream().filter(code -> !b.contains(code)).map(Permissions::trouver).flatMap(java.util.Optional::stream).toList();
+    }
+
+    /** « Vous pouvez maintenant voir l'occupation du personnel. Qui est libre… » ; pour plusieurs droits : une liste séparée par des points-virgules. */
+    private static String phrase(String debut, List<Permissions.Definition> droits) {
+        if (droits.size() == 1) return debut + " " + minuscule(droits.get(0).libelle()) + ". " + droits.get(0).description();
+        return debut + " : " + droits.stream().map(d -> minuscule(d.libelle())).collect(Collectors.joining(" ; ")) + ".";
+    }
+
+    private static String minuscule(String texte) {
+        return texte.isEmpty() ? texte : Character.toLowerCase(texte.charAt(0)) + texte.substring(1);
+    }
+
+    /** La personne connectée qui règle les droits, affichée comme auteur de la notification. */
+    private String auteurCourant() {
+        Authentication auth = org.springframework.security.core.context.SecurityContextHolder.getContext().getAuthentication();
+        if (auth == null || !auth.isAuthenticated() || auth instanceof AnonymousAuthenticationToken) return "Le cabinet";
+        return utilisateurs.findByEmailIgnoreCase(auth.getName()).map(NotificationService::origine).orElse("Le cabinet");
     }
 
     private static void verifierRole(Role role) {

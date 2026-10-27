@@ -19,17 +19,21 @@ public class NotificationService {
     private static final ZoneId ZONE = ZoneId.of("Indian/Antananarivo");
     private final NotificationRepository notifications;
 
-    /** « Marie Rasoa (sage-femme) » : qui a fait l'action, affiché dans la notification. */
-    public static String origine(Utilisateur u) {
-        if (u == null) return "Le cabinet";
-        String role = switch (u.getRole()) {
+    /** Nom du rôle en français, tel qu'il s'affiche aux utilisateurs. */
+    public static String libelleRole(com.cabinet.cabinet.enums.Role role) {
+        return switch (role) {
             case SUPER_ADMIN -> "super administrateur";
             case MEDECIN -> "médecin";
             case SAGE_FEMME -> "sage-femme";
             case SECRETAIRE -> "secrétaire";
             case INFIRMIERE -> "infirmière";
         };
-        return u.getNom() + " (" + role + ")";
+    }
+
+    /** « Marie Rasoa (sage-femme) » : qui a fait l'action, affiché dans la notification. */
+    public static String origine(Utilisateur u) {
+        if (u == null) return "Le cabinet";
+        return u.getNom() + " (" + libelleRole(u.getRole()) + ")";
     }
 
     @Transactional

@@ -21,7 +21,7 @@ import java.util.Map;
 @Service
 public class RendezVousListePdfService {
     private static final ZoneId ZONE = ZoneId.of("Indian/Antananarivo");
-    private static final Map<String, String> STATUTS = Map.of("EN_ATTENTE", "En attente", "CONFIRME", "Confirmé", "TERMINE", "Terminé", "ANNULE", "Annulé");
+    private static final Map<String, String> STATUTS = Map.of("EN_ATTENTE", "En cours", "CONFIRME", "Confirmé", "TERMINE", "Terminé", "ANNULE", "Annulé");
     private static final String[] TITRES = {"N°", "Date", "Heure", "Patient", "Téléphone", "Service", "Praticien", "Statut"};
     private static final float[] LARGEURS = {40, 70, 45, 160, 90, 150, 140, 70};
     private static final float MARGE = 36;

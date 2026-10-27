@@ -39,7 +39,7 @@ import java.util.Set;
 @RequiredArgsConstructor
 public class ExportController {
     private static final ZoneId ZONE = ZoneId.of("Indian/Antananarivo");
-    private static final Map<String, String> STATUTS = Map.of("EN_ATTENTE", "En attente", "CONFIRME", "Confirmé", "TERMINE", "Terminé", "ANNULE", "Annulé");
+    private static final Map<String, String> STATUTS = Map.of("EN_ATTENTE", "En cours", "CONFIRME", "Confirmé", "TERMINE", "Terminé", "ANNULE", "Annulé");
     private static final int MAX_JOURS = 400;
     private static final int MAX_LIGNES = 5000;
 

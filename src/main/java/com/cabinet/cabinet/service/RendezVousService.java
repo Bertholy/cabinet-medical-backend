@@ -524,7 +524,7 @@ public class RendezVousService {
         RendezVous rdv = rendezVousRepository.findByIdAndSupprimeFalse(id)
                 .orElseThrow(() -> new RendezVousIntrouvableException("Rendez-vous introuvable avec l'id : " + id));
         if (rdv.getStatut() != StatutRDV.EN_ATTENTE) {
-            throw new StatutInvalideException("Seul un RDV en attente peut être confirmé");
+            throw new StatutInvalideException("Seul un rendez-vous en cours peut être confirmé");
         }
         Utilisateur acteur = acteur(emailActeur);
         if (!permissions.de(acteur).contains(com.cabinet.cabinet.security.Permissions.RDV_CONFIRMER)) {

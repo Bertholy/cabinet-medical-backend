@@ -36,6 +36,7 @@ public class AdminUtilisateurController {
     private final com.cabinet.cabinet.repository.MessageRepository messageRepository;
     private final com.cabinet.cabinet.repository.PermissionUtilisateurRepository exceptionsDroits;
     private final com.cabinet.cabinet.security.PermissionService permissions;
+    private final com.cabinet.cabinet.service.NotificationService notifications;
 
     public record ModificationCompte(@NotBlank(message = "Le nom est obligatoire") @Size(max = 100) String nom,
                                      @NotBlank(message = "L'adresse e-mail est obligatoire") @Email(message = "Adresse e-mail invalide") @Size(max = 150) String email,
@@ -51,7 +52,7 @@ public class AdminUtilisateurController {
 
     @PostMapping
     @Transactional
-    public ResponseEntity<UtilisateurResponseDTO> create(@Valid @RequestBody UtilisateurCreateRequestDTO request) {
+    public ResponseEntity<UtilisateurResponseDTO> create(@Valid @RequestBody UtilisateurCreateRequestDTO request, Authentication authentication) {
         String email = request.getEmail().trim().toLowerCase();
         if (users.findByEmailIgnoreCase(email).isPresent()) throw new ResponseStatusException(HttpStatus.CONFLICT, "Cette adresse e-mail est déjà utilisée.");
         Utilisateur user = new Utilisateur();
@@ -62,6 +63,10 @@ public class AdminUtilisateurController {
         user.setMotDePasse(passwordEncoder.encode(request.getMotDePasse()));
         Utilisateur saved = users.save(user);
         audit.log("COMPTE_CREE", "Utilisateur", saved.getId(), saved.getEmail() + " (" + saved.getRole() + ")");
+        // la personne trouve ce message dans sa cloche dès sa première connexion
+        notifications.informer(saved, "ROLE_ATTRIBUE", "Bienvenue dans l'équipe",
+                "Votre compte a été créé avec le rôle « " + com.cabinet.cabinet.service.NotificationService.libelleRole(saved.getRole()) + " ». Votre menu et vos droits dépendent de ce rôle.",
+                auteur(authentication), null);
         return ResponseEntity.status(HttpStatus.CREATED).body(toResponse(saved));
     }
 
@@ -97,7 +102,7 @@ public class AdminUtilisateurController {
 
     @PatchMapping("/{id}/role")
     @Transactional
-    public UtilisateurResponseDTO changeRole(@PathVariable Long id, @RequestBody Map<String, String> request) {
+    public UtilisateurResponseDTO changeRole(@PathVariable Long id, @RequestBody Map<String, String> request, Authentication authentication) {
         Role role;
         try { role = Role.valueOf(request.getOrDefault("role", "")); }
         catch (IllegalArgumentException exception) { throw new ResponseStatusException(HttpStatus.BAD_REQUEST, "Rôle invalide."); }
@@ -111,7 +116,19 @@ public class AdminUtilisateurController {
         user.setRole(role);
         Utilisateur saved = users.save(user);
         audit.log("ROLE_MODIFIE", "Utilisateur", id, saved.getEmail() + " : " + ancien + " → " + role);
+        if (ancien != role) {
+            notifications.informer(saved, "ROLE_MODIFIE", "Votre rôle a changé",
+                    "Vous êtes maintenant « " + com.cabinet.cabinet.service.NotificationService.libelleRole(role) + " » (avant : « "
+                            + com.cabinet.cabinet.service.NotificationService.libelleRole(ancien) + " »). Votre menu et vos droits sont mis à jour.",
+                    auteur(authentication), null);
+        }
         return toResponse(saved);
+    }
+
+    /** « Prénom Nom (rôle) » de la personne connectée, affiché comme auteur dans la notification. */
+    private String auteur(Authentication authentication) {
+        return authentication == null ? "Le cabinet"
+                : users.findByEmailIgnoreCase(authentication.getName()).map(com.cabinet.cabinet.service.NotificationService::origine).orElse("Le cabinet");
     }
 
     @DeleteMapping("/{id}")
