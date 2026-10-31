@@ -28,6 +28,10 @@ public class RendezVous {
     @Column(name = "age_client", nullable = false)
     private Integer ageClient;
 
+    /** « HOMME » ou « FEMME » (facultatif) ; la civilité (Mr, Mme, Enfant) en est déduite avec l'âge, voir util/Civilite. */
+    @Column(name = "sexe", length = 10)
+    private String sexe;
+
     @Column(name = "telephone_client", nullable = false, length = 20)
     private String telephoneClient;
 
@@ -76,6 +80,32 @@ public class RendezVous {
     /** Moment où la personne attribuée a accepté le rendez-vous (null tant qu'elle ne l'a pas fait). Remis à zéro si on change de personne. */
     @Column(name = "personnel_confirme_le")
     private LocalDateTime personnelConfirmeLe;
+
+    /** Patient reçu au cabinet sans rendez-vous (consultation immédiate) : confirmé et accepté dès la saisie. */
+    @Column(name = "sans_rendez_vous", columnDefinition = "boolean default false")
+    private Boolean sansRendezVous = false;
+
+    /** Patient reçu en urgence (consultation immédiate prioritaire). */
+    @Column(name = "urgence", columnDefinition = "boolean default false")
+    private Boolean urgence = false;
+
+    /** Personne qui accompagne le patient et remplit le formulaire à sa place en cas d'urgence (facultatif). */
+    @Column(name = "accompagnant_nom", length = 100)
+    private String accompagnantNom;
+
+    @Column(name = "accompagnant_telephone", length = 20)
+    private String accompagnantTelephone;
+
+    /** Lien avec le patient : parent, conjoint, ami… */
+    @Column(name = "accompagnant_lien", length = 50)
+    private String accompagnantLien;
+
+    @Column(name = "accompagnant_sexe", length = 10)
+    private String accompagnantSexe;
+
+    /** Services demandés en plus de « service » (patient reçu sans rendez-vous pour plusieurs prestations) : leurs noms séparés par « | ». */
+    @Column(name = "autres_services", length = 500)
+    private String autresServices;
 
     @Column(name = "rappel_envoye", columnDefinition = "boolean default false")
     private Boolean rappelEnvoye = false;

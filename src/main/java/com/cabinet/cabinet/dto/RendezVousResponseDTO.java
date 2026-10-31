@@ -13,10 +13,16 @@ public class RendezVousResponseDTO {
     private Long id;
     private String nomClient;
     private Integer ageClient;
+    /** « HOMME », « FEMME » ou null. */
+    private String sexe;
+    /** Civilité calculée d'après l'âge et le sexe : « Enfant », « Mr », « Mme » ou null. */
+    private String civilite;
     private String telephoneClient;
     private String motif;
     private Long serviceId;
     private String serviceNom;
+    /** Tous les services du rendez-vous : le principal d'abord, puis les autres. */
+    private java.util.List<String> servicesNoms;
     private Long praticienId;
     private String praticienNom;
     /** La personne attribuée a accepté le rendez-vous. */
@@ -30,4 +36,15 @@ public class RendezVousResponseDTO {
     private StatutRDV statut;
     private LocalDateTime dateCreation;
     private LocalDateTime deletedAt;
+    /** Patient reçu sans rendez-vous (consultation immédiate). */
+    private boolean sansRendezVous;
+    /** Patient reçu en urgence. */
+    private boolean urgence;
+    /** Personne qui accompagne le patient (facultatif). */
+    private String accompagnantNom;
+    private String accompagnantTelephone;
+    private String accompagnantLien;
+    private String accompagnantSexe;
+    /** « Mr » ou « Mme » d'après le sexe de l'accompagnant (adulte), vide si inconnu. */
+    private String accompagnantCivilite;
 }

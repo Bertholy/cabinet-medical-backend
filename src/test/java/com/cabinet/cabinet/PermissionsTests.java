@@ -83,7 +83,8 @@ class PermissionsTests extends BaseApiTest {
         for (String url : new String[]{"/api/admin/users", "/api/admin/permissions", "/api/admin/journal", "/api/admin/occupation?date=" + jourOuvre(5), "/api/admin/sauvegardes"}) {
             mvc.perform(get(url).header("Authorization", admin)).andExpect(status().isOk());
             mvc.perform(get(url).header("Authorization", medecin)).andExpect(status().isForbidden());
-            mvc.perform(get(url).header("Authorization", secretaire)).andExpect(status().isForbidden());
+            // la secrétaire voit l'occupation du personnel (pour attribuer les rendez-vous) ; le reste de l'administration lui reste fermé
+            mvc.perform(get(url).header("Authorization", secretaire)).andExpect(url.contains("/api/admin/occupation") ? status().isOk() : status().isForbidden());
         }
         mvc.perform(get("/api/admin/permissions")).andExpect(status().isUnauthorized());
     }
@@ -148,20 +149,20 @@ class PermissionsTests extends BaseApiTest {
         mvc.perform(get("/api/notifications").header("Authorization", secretaire)).andExpect(jsonPath("$.nonLues").value(0));
         // un droit accordé en plus : la secrétaire le lit dans sa cloche
         mvc.perform(put("/api/admin/permissions/utilisateurs/" + idSecretaire).header("Authorization", admin).contentType(MediaType.APPLICATION_JSON)
-                .content("{\"code\":\"OCCUPATION_VOIR\",\"accorde\":true}")).andExpect(status().isOk());
+                .content("{\"code\":\"JOURNAL_VOIR\",\"accorde\":true}")).andExpect(status().isOk());
         mvc.perform(get("/api/notifications").header("Authorization", secretaire)).andExpect(jsonPath("$.nonLues").value(1))
                 .andExpect(jsonPath("$.notifications[0].type").value("ACCES_MODIFIE"))
                 .andExpect(jsonPath("$.notifications[0].titre").value("Nouvel accès"))
-                .andExpect(jsonPath("$.notifications[0].message", containsString("Vous pouvez maintenant voir l'occupation du personnel")));
+                .andExpect(jsonPath("$.notifications[0].message", containsString("Vous pouvez maintenant consulter le journal d'audit")));
         // le même réglage répété ne change rien : pas de nouvelle notification
         mvc.perform(put("/api/admin/permissions/utilisateurs/" + idSecretaire).header("Authorization", admin).contentType(MediaType.APPLICATION_JSON)
-                .content("{\"code\":\"OCCUPATION_VOIR\",\"accorde\":true}")).andExpect(status().isOk());
+                .content("{\"code\":\"JOURNAL_VOIR\",\"accorde\":true}")).andExpect(status().isOk());
         mvc.perform(get("/api/notifications").header("Authorization", secretaire)).andExpect(jsonPath("$.nonLues").value(1));
         // les autres membres de l'équipe ne sont pas concernés
         mvc.perform(get("/api/notifications").header("Authorization", medecin)).andExpect(jsonPath("$.nonLues").value(0));
         // le droit retiré : elle en est aussi prévenue
         mvc.perform(put("/api/admin/permissions/utilisateurs/" + idSecretaire).header("Authorization", admin).contentType(MediaType.APPLICATION_JSON)
-                .content("{\"code\":\"OCCUPATION_VOIR\",\"accorde\":null}")).andExpect(status().isOk());
+                .content("{\"code\":\"JOURNAL_VOIR\",\"accorde\":null}")).andExpect(status().isOk());
         mvc.perform(get("/api/notifications").header("Authorization", secretaire)).andExpect(jsonPath("$.nonLues").value(2))
                 .andExpect(jsonPath("$.notifications[0].titre").value("Accès retiré"));
         // un réglage de rôle prévient chaque personne du rôle : la secrétaire perd la recherche de patients
@@ -238,16 +239,31 @@ class PermissionsTests extends BaseApiTest {
         long medecinId = idDe("test.medecin@casafami.test");
         String attribution = "{\"praticienId\":" + medecinId + "}";
 
-        // par défaut, la secrétaire ne peut ni attribuer ni confirmer
-        mvc.perform(put("/api/rdv/" + id + "/praticien").header("Authorization", secretaire).contentType(MediaType.APPLICATION_JSON).content(attribution)).andExpect(status().isForbidden());
+        // par défaut, la secrétaire attribue les rendez-vous mais ne les confirme pas définitivement (un médecin, sans ce droit, ne peut pas attribuer)
+        mvc.perform(put("/api/rdv/" + id + "/praticien").header("Authorization", medecin).contentType(MediaType.APPLICATION_JSON).content(attribution)).andExpect(status().isForbidden());
+        mvc.perform(put("/api/rdv/" + id + "/praticien").header("Authorization", secretaire).contentType(MediaType.APPLICATION_JSON).content(attribution)).andExpect(status().isOk());
         mvc.perform(put("/api/rdv/" + id + "/confirmer").header("Authorization", secretaire)).andExpect(status().isForbidden());
 
-        // le super administrateur lui délègue les deux étapes
+        // le super administrateur lui délègue aussi la confirmation finale
         definirRole("SECRETAIRE", Permissions.RDV_VOIR, Permissions.RDV_ATTRIBUER, Permissions.RDV_CONFIRMER);
-        mvc.perform(put("/api/rdv/" + id + "/praticien").header("Authorization", secretaire).contentType(MediaType.APPLICATION_JSON).content(attribution)).andExpect(status().isOk());
         mvc.perform(put("/api/rdv/" + id + "/confirmer").header("Authorization", secretaire)).andExpect(status().isConflict()); // le médecin n'a pas encore accepté
         mvc.perform(put("/api/rdv/" + id + "/accepter").header("Authorization", medecin)).andExpect(status().isOk());
         mvc.perform(put("/api/rdv/" + id + "/confirmer").header("Authorization", secretaire)).andExpect(status().isOk()).andExpect(jsonPath("$.statut").value("CONFIRME"));
+    }
+
+    @Test
+    void retirerLeDroitDAnnulerOuDeConfirmerEmpecheLePersonnelDAgir() throws Exception {
+        LocalDate jour = jourOuvre(56);
+        String id = extraire(mvc.perform(post("/api/rdv").contentType(MediaType.APPLICATION_JSON).content(corpsRdv(jour, "10:00:00"))).andExpect(status().isCreated()).andReturn(), "id");
+        mvc.perform(put("/api/rdv/" + id + "/praticien").header("Authorization", admin).contentType(MediaType.APPLICATION_JSON)
+                .content("{\"praticienId\":" + idDe("test.medecin@casafami.test") + "}")).andExpect(status().isOk());
+        // sans « Confirmer » ni « Annuler », le médecin ne peut plus ni l'un ni l'autre
+        definirRole("MEDECIN", Permissions.RDV_VOIR, Permissions.RDV_ACCEPTER, Permissions.RDV_TERMINER);
+        mvc.perform(put("/api/rdv/" + id + "/confirmer").header("Authorization", medecin)).andExpect(status().isForbidden());
+        mvc.perform(put("/api/rdv/" + id + "/annuler").header("Authorization", medecin)).andExpect(status().isForbidden());
+        // le droit rendu, il peut annuler
+        definirRole("MEDECIN", Permissions.RDV_VOIR, Permissions.RDV_ACCEPTER, Permissions.RDV_TERMINER, Permissions.RDV_ANNULER);
+        mvc.perform(put("/api/rdv/" + id + "/annuler").header("Authorization", medecin)).andExpect(status().isOk()).andExpect(jsonPath("$.statut").value("ANNULE"));
     }
 
     @Test

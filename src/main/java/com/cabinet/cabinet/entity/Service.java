@@ -1,6 +1,7 @@
 package com.cabinet.cabinet.entity;
 
 import com.cabinet.cabinet.util.TextRepairListener;
+import com.fasterxml.jackson.annotation.JsonIgnore;
 import jakarta.persistence.*;
 import lombok.*;
 
@@ -27,4 +28,8 @@ public class Service {
 
     @Column(name = "image_url", length = 500)
     private String imageUrl;
+
+    /** Tarif en Ariary (facultatif). Réservé au personnel : jamais renvoyé par la liste publique des services (voir GET /api/services/tarifs). */
+    @JsonIgnore
+    private Integer prix;
 }

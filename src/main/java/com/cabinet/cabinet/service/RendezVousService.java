@@ -2,6 +2,7 @@ package com.cabinet.cabinet.service;
 
 import com.cabinet.cabinet.dto.RendezVousRequestDTO;
 import com.cabinet.cabinet.dto.RendezVousResponseDTO;
+import com.cabinet.cabinet.dto.SansRendezVousRequestDTO;
 import com.cabinet.cabinet.entity.RendezVous;
 import com.cabinet.cabinet.enums.StatutRDV;
 import com.cabinet.cabinet.exception.CreneauIndisponibleException;
@@ -13,6 +14,7 @@ import com.cabinet.cabinet.repository.UtilisateurRepository;
 import com.cabinet.cabinet.entity.Utilisateur;
 import com.cabinet.cabinet.enums.Role;
 import com.cabinet.cabinet.sms.SmsService;
+import com.cabinet.cabinet.util.Civilite;
 import com.cabinet.cabinet.util.PhoneUtils;
 import com.cabinet.cabinet.util.TextUtils;
 import lombok.RequiredArgsConstructor;
@@ -151,7 +153,7 @@ public class RendezVousService {
         }
         // Chaque super administrateur reçoit une notification : un clic ouvre ce rendez-vous sur le tableau de bord, où l'on choisit la personne.
         if (!parSuperAdmin) {
-            prevenirLesSuperAdmins(saved, "RDV_NOUVEAU", "Nouvelle demande de rendez-vous", saved.getPraticien() == null ? "Nouvelle demande à attribuer" : "Nouvelle demande", origine, null);
+            prevenirLaReception(saved, "RDV_NOUVEAU", "Nouvelle demande de rendez-vous", saved.getPraticien() == null ? "Nouvelle demande à attribuer" : "Nouvelle demande", origine, null);
         }
 
         // 5. Envoyer SMS au médecin (notification)
@@ -238,6 +240,15 @@ public class RendezVousService {
     /** @param origine qui modifie (affiché dans la notification envoyée aux super administrateurs quand ce n'est pas l'un d'eux) */
     @Transactional
     public RendezVousResponseDTO modifierRendezVous(Long id, RendezVousRequestDTO dto, boolean peutAttribuer, String origine) {
+        return modifierRendezVous(id, dto, peutAttribuer, origine, peutAttribuer);
+    }
+
+    /**
+     * « parSuperAdmin » : la modification vient d'un super administrateur (il a déjà vu la sienne). Distinct de « peutAttribuer » : une secrétaire
+     * peut avoir le droit d'attribuer sans être super administrateur, et le super administrateur doit alors être prévenu de ce qu'elle modifie.
+     */
+    @Transactional
+    public RendezVousResponseDTO modifierRendezVous(Long id, RendezVousRequestDTO dto, boolean peutAttribuer, String origine, boolean parSuperAdmin) {
         verrouillerJour(dto.getDateRdv());
         RendezVous rdv = rendezVousRepository.findByIdAndSupprimeFalse(id)
                 .orElseThrow(() -> new RendezVousIntrouvableException("Rendez-vous introuvable avec l'id : " + id));
@@ -266,8 +277,8 @@ public class RendezVousService {
                 notifications.notifier(rdv.getPraticien(), "RDV_DEPLACE", "Rendez-vous déplacé", rdv, "Ce rendez-vous (prévu le " + ancienneDate.substring(0, 16) + ") a été déplacé", "Le cabinet");
             }
             // le super administrateur est prévenu des modifications faites par les autres (il a déjà vu les siennes)
-            if (!peutAttribuer) {
-                prevenirLesSuperAdmins(rdv, "RDV_MODIFIE", "Rendez-vous modifié", creneauChange ? "Rendez-vous déplacé (il était prévu le " + ancienneDate.substring(0, 16) + ")" : "Rendez-vous modifié", origine, null);
+            if (!parSuperAdmin) {
+                prevenirLaReception(rdv, "RDV_MODIFIE", "Rendez-vous modifié", creneauChange ? "Rendez-vous déplacé (il était prévu le " + ancienneDate.substring(0, 16) + ")" : "Rendez-vous modifié", origine, null);
             }
             return saved;
         } catch (DataIntegrityViolationException ex) {
@@ -286,7 +297,7 @@ public class RendezVousService {
         rdv.setDeletedBy(acteur);
         rendezVousRepository.save(rdv);
         if (acteur.getRole() != Role.SUPER_ADMIN) {
-            prevenirLesSuperAdmins(rdv, "RDV_CORBEILLE", "Rendez-vous mis à la corbeille", "Rendez-vous mis à la corbeille (récupérable depuis la corbeille)", NotificationService.origine(acteur), "/corbeille");
+            prevenirLaReception(rdv, "RDV_CORBEILLE", "Rendez-vous mis à la corbeille", "Rendez-vous mis à la corbeille (récupérable depuis la corbeille)", NotificationService.origine(acteur), "/corbeille");
         }
         audit.log("RDV_CORBEILLE", "RendezVous", id, rdv.getNomClient() + " — " + rdv.getDateRdv() + " " + rdv.getHeureRdv());
     }
@@ -530,6 +541,12 @@ public class RendezVousService {
         if (!permissions.de(acteur).contains(com.cabinet.cabinet.security.Permissions.RDV_CONFIRMER)) {
             throw new org.springframework.security.access.AccessDeniedException("Vous n'avez pas le droit de confirmer définitivement un rendez-vous.");
         }
+        // le personnel soignant ne confirme que ses propres rendez-vous (sauf s'il a aussi le droit d'attribuer) ; la personne attribuée qui confirme accepte du même coup
+        if (ROLES_PRATICIENS.contains(acteur.getRole()) && !permissions.de(acteur).contains(com.cabinet.cabinet.security.Permissions.RDV_ATTRIBUER)) verifierQueLeRdvMEstAttribue(rdv, acteur);
+        if (rdv.getPraticien() != null && rdv.getPersonnelConfirmeLe() == null && rdv.getPraticien().getId().equals(acteur.getId())) {
+            rdv.setPersonnelConfirmeLe(LocalDateTime.now(CABINET_ZONE));
+            audit.log("RDV_ACCEPTE_PAR_PERSONNEL", "RendezVous", id, rdv.getNomClient() + " — accepté par " + acteur.getNom() + " en le confirmant");
+        }
         verrouillerJour(rdv.getDateRdv());
         if (rdv.getPraticien() == null) {
             if (!utilisateurRepository.findByRoleIn(ROLES_PRATICIENS).isEmpty()) {
@@ -599,11 +616,35 @@ public class RendezVousService {
         return toResponseDTO(rendezVousRepository.save(rdv));
     }
 
-    /** Chaque super administrateur reçoit la notification : il suit ainsi tout ce qui se passe sur les rendez-vous, quelle que soit la personne qui agit. */
-    private void prevenirLesSuperAdmins(RendezVous rdv, String type, String titre, String phrase, String origine, String lien) {
-        for (Utilisateur admin : utilisateurRepository.findByRoleIn(List.of(Role.SUPER_ADMIN))) {
-            notifications.notifier(admin, type, titre, rdv, phrase, origine, lien);
+    /**
+     * Chaque super administrateur reçoit la notification, ainsi que chaque personne qui a le droit « Être prévenu des nouveaux rendez-vous » (la secrétaire par défaut) :
+     * elle suit ainsi tout ce qui arrive sur les rendez-vous, quelle que soit la personne qui agit, et peut attribuer une demande à une personne libre.
+     * La personne qui agit n'est pas prévenue de ce qu'elle vient de faire elle-même.
+     */
+    private void prevenirLaReception(RendezVous rdv, String type, String titre, String phrase, String origine, String lien) {
+        String acteur = emailActeurCourant();
+        for (Utilisateur destinataire : destinatairesDesRendezVous(acteur)) {
+            // la secrétaire ouvre la demande sur son tableau de bord (c'est là qu'elle l'attribue) ; les autres suivent le lien habituel
+            String lienPropre = lien != null ? lien : (destinataire.getRole() == Role.SECRETAIRE ? "/espace/secretariat?rdv=" + rdv.getId() : null);
+            notifications.notifier(destinataire, type, titre, rdv, phrase, origine, lienPropre);
         }
+    }
+
+    private List<Utilisateur> destinatairesDesRendezVous(String emailActeur) {
+        java.util.Map<Long, Utilisateur> destinataires = new java.util.LinkedHashMap<>();
+        for (Utilisateur admin : utilisateurRepository.findByRoleIn(List.of(Role.SUPER_ADMIN))) destinataires.put(admin.getId(), admin);
+        for (Utilisateur u : utilisateurRepository.findByRoleIn(com.cabinet.cabinet.security.PermissionService.ROLES_REGLABLES)) {
+            if (emailActeur != null && emailActeur.equalsIgnoreCase(u.getEmail())) continue;
+            if (permissions.de(u).contains(com.cabinet.cabinet.security.Permissions.RDV_NOTIFIER)) destinataires.put(u.getId(), u);
+        }
+        return new java.util.ArrayList<>(destinataires.values());
+    }
+
+    /** Adresse e-mail de la personne connectée qui effectue l'action en cours (null pour un visiteur du site public). */
+    private static String emailActeurCourant() {
+        org.springframework.security.core.Authentication auth = org.springframework.security.core.context.SecurityContextHolder.getContext().getAuthentication();
+        if (auth == null || !auth.isAuthenticated() || auth instanceof org.springframework.security.authentication.AnonymousAuthenticationToken) return null;
+        return auth.getName();
     }
 
     private static final List<Role> ROLES_PRATICIENS = List.of(Role.MEDECIN, Role.SAGE_FEMME, Role.INFIRMIERE);
@@ -651,6 +692,21 @@ public class RendezVousService {
         return saved;
     }
 
+    /** Le personnel connecté doit avoir le droit « Annuler un rendez-vous » ; le personnel soignant n'annule que ses propres rendez-vous (sauf s'il peut aussi attribuer). */
+    private void verifierDroitAnnulation(RendezVous rdv) {
+        String email = emailActeurCourant();
+        Utilisateur acteur = email == null ? null : utilisateurRepository.findByEmail(email).orElse(null);
+        if (acteur == null) return;
+        java.util.Set<String> droits = permissions.de(acteur);
+        if (!droits.contains(com.cabinet.cabinet.security.Permissions.RDV_ANNULER)) {
+            throw new org.springframework.security.access.AccessDeniedException("Vous n'avez pas le droit d'annuler un rendez-vous.");
+        }
+        if (ROLES_PRATICIENS.contains(acteur.getRole()) && !droits.contains(com.cabinet.cabinet.security.Permissions.RDV_ATTRIBUER)
+                && (rdv.getPraticien() == null || !rdv.getPraticien().getId().equals(acteur.getId()))) {
+            throw new org.springframework.security.access.AccessDeniedException("Vous ne pouvez annuler que vos propres rendez-vous.");
+        }
+    }
+
     // ============ ANNULER UN RDV ============
     /**
      * @param token            jeton remis au client à la création (en-tête X-RDV-Access-Token)
@@ -667,6 +723,7 @@ public class RendezVousService {
         RendezVous rdv = rendezVousRepository.findByIdAndSupprimeFalse(id)
                 .orElseThrow(() -> new RendezVousIntrouvableException("Rendez-vous introuvable avec l'id : " + id));
         verifierAcces(rdv, token, utilisateurInterne);
+        if (utilisateurInterne) verifierDroitAnnulation(rdv);
 
         if (rdv.getStatut() == StatutRDV.ANNULE) return toResponseDTO(rdv);
         if (rdv.getStatut() == StatutRDV.TERMINE) {
@@ -684,7 +741,7 @@ public class RendezVousService {
         audit.log("RDV_ANNULE", "RendezVous", id, rdv.getNomClient() + (utilisateurInterne ? "" : " (annulé par le patient)"));
         notifications.notifier(rdv.getPraticien(), "RDV_ANNULE", "Rendez-vous annulé", rdv, utilisateurInterne ? "Ce rendez-vous a été annulé par le cabinet" : "Le patient a annulé ce rendez-vous", utilisateurInterne ? "Le cabinet" : "Le patient");
         if (!parSuperAdmin) {
-            prevenirLesSuperAdmins(rdv, "RDV_ANNULE", "Rendez-vous annulé", utilisateurInterne ? "Rendez-vous annulé par l'équipe" : "Le patient a annulé son rendez-vous", origine, null);
+            prevenirLaReception(rdv, "RDV_ANNULE", "Rendez-vous annulé", utilisateurInterne ? "Rendez-vous annulé par l'équipe" : "Le patient a annulé son rendez-vous", origine, null);
         }
 
         // Envoyer SMS au client (annulation)
@@ -787,6 +844,7 @@ public class RendezVousService {
     private void appliquerChamps(RendezVous rdv, RendezVousRequestDTO dto) {
         rdv.setNomClient(dto.getNomClient().trim());
         rdv.setAgeClient(dto.getAgeClient());
+        if (dto.getSexe() != null) rdv.setSexe(Civilite.normaliserSexe(dto.getSexe()));   // absent = inchangé ; vide = non précisé
         String telephone = PhoneUtils.canonical(dto.getTelephoneClient());
         if (telephone == null) throw new ResponseStatusException(HttpStatus.BAD_REQUEST, "Le numéro de téléphone est invalide");
         rdv.setTelephoneClient(telephone);
@@ -826,16 +884,165 @@ public class RendezVousService {
         }
     }
 
+    // ============ PATIENT SANS RENDEZ-VOUS (consultation immédiate) ============
+
+    /** Un rendez-vous occupe son praticien du début du créneau jusqu'à la fin de sa durée (en minutes depuis minuit : aucun passage de minuit à gérer). */
+    private boolean occupePraticienMaintenant(RendezVous r, Long praticienId, int minuteMaintenant, int dureeMinutes) {
+        if (r.getPraticien() == null || !r.getPraticien().getId().equals(praticienId)) return false;
+        if (r.getStatut() != StatutRDV.EN_ATTENTE && r.getStatut() != StatutRDV.CONFIRME) return false;
+        int debut = r.getHeureRdv().getHour() * 60 + r.getHeureRdv().getMinute();
+        return debut <= minuteMaintenant && minuteMaintenant < debut + dureeMinutes;
+    }
+
+    /**
+     * Qui est libre en ce moment ? Pour chaque personne du personnel : libre ou non, jusqu'à quand elle est prise, et l'heure de son prochain rendez-vous.
+     * Sert à la secrétaire quand un patient se présente sans rendez-vous.
+     */
+    @Transactional(readOnly = true)
+    public Map<String, Object> praticiensLibresMaintenant() {
+        LocalDateTime maintenant = LocalDateTime.now(CABINET_ZONE);
+        LocalDate jour = maintenant.toLocalDate();
+        int minuteMaintenant = maintenant.getHour() * 60 + maintenant.getMinute();
+        int duree = planning.parametres().getDureeCreneauMinutes();
+        List<RendezVous> actifs = rendezVousRepository.findByDateRdvAndSupprimeFalse(jour);
+
+        List<Map<String, Object>> personnel = new ArrayList<>();
+        for (Utilisateur u : utilisateurRepository.findByRoleIn(ROLES_PRATICIENS).stream()
+                .sorted(java.util.Comparator.comparing(Utilisateur::getNom, String.CASE_INSENSITIVE_ORDER)).toList()) {
+            RendezVous enCours = actifs.stream().filter(r -> occupePraticienMaintenant(r, u.getId(), minuteMaintenant, duree)).findFirst().orElse(null);
+            LocalTime prochain = actifs.stream()
+                    .filter(r -> r.getPraticien() != null && r.getPraticien().getId().equals(u.getId()))
+                    .filter(r -> r.getStatut() == StatutRDV.EN_ATTENTE || r.getStatut() == StatutRDV.CONFIRME)
+                    .map(RendezVous::getHeureRdv)
+                    .filter(h -> h.getHour() * 60 + h.getMinute() > minuteMaintenant)
+                    .min(java.util.Comparator.naturalOrder()).orElse(null);
+            Map<String, Object> ligne = new LinkedHashMap<>();
+            ligne.put("id", u.getId());
+            ligne.put("nom", u.getNom());
+            ligne.put("role", u.getRole());
+            ligne.put("photoUrl", u.getPhotoUrl());
+            ligne.put("libre", enCours == null);
+            ligne.put("occupeJusqua", enCours == null ? null : enCours.getHeureRdv().plusMinutes(duree).toString().substring(0, 5));
+            ligne.put("prochainRdv", prochain == null ? null : prochain.toString().substring(0, 5));
+            personnel.add(ligne);
+        }
+
+        List<LocalTime> creneaux = planning.creneaux(jour);
+        boolean ouvert = !creneaux.isEmpty()
+                && minuteMaintenant >= creneaux.get(0).getHour() * 60 + creneaux.get(0).getMinute()
+                && minuteMaintenant < creneaux.get(creneaux.size() - 1).getHour() * 60 + creneaux.get(creneaux.size() - 1).getMinute() + duree;
+
+        Map<String, Object> corps = new LinkedHashMap<>();
+        corps.put("heure", String.format("%02d:%02d", maintenant.getHour(), maintenant.getMinute()));
+        corps.put("ouvert", ouvert);
+        corps.put("dureeCreneauMinutes", duree);
+        corps.put("praticiens", personnel);
+        return corps;
+    }
+
+    /**
+     * Reçoit tout de suite un patient venu sans rendez-vous : le rendez-vous est créé pour maintenant, avec une personne libre, déjà accepté et confirmé
+     * (le patient est devant le comptoir : pas de double confirmation ni de SMS). La personne et les super administrateurs sont prévenus.
+     */
+    @Transactional
+    public RendezVousResponseDTO recevoirSansRendezVous(SansRendezVousRequestDTO dto, String emailActeur) {
+        Utilisateur acteur = acteur(emailActeur);
+        LocalDateTime maintenant = LocalDateTime.now(CABINET_ZONE);
+        LocalDate jour = maintenant.toLocalDate();
+        LocalTime heure = maintenant.toLocalTime().withSecond(0).withNano(0);
+        verrouillerJour(jour);
+
+        Utilisateur praticien = resolvePractitioner(dto.getPraticienId());
+        int minuteMaintenant = heure.getHour() * 60 + heure.getMinute();
+        int duree = planning.parametres().getDureeCreneauMinutes();
+        if (rendezVousRepository.findByDateRdvAndSupprimeFalse(jour).stream().anyMatch(r -> occupePraticienMaintenant(r, praticien.getId(), minuteMaintenant, duree))) {
+            throw new CreneauIndisponibleException(praticien.getNom() + " n'est pas libre en ce moment. Choisissez une autre personne.");
+        }
+
+        RendezVous rdv = new RendezVous();
+        rdv.setNomClient(dto.getNomClient().trim());
+        rdv.setAgeClient(dto.getAgeClient());
+        rdv.setSexe(Civilite.normaliserSexe(dto.getSexe()));
+        // Un enfant n'a pas de téléphone : le contact est celui de son parent ou responsable (nom et numéro obligatoires).
+        // Pour un adulte : son numéro ; en urgence, à défaut, celui de la personne qui l'accompagne.
+        boolean enfant = dto.getAgeClient() != null && dto.getAgeClient() < Civilite.AGE_ADULTE;
+        if (enfant && (dto.getAccompagnantNom() == null || dto.getAccompagnantNom().isBlank())) {
+            throw new ResponseStatusException(HttpStatus.BAD_REQUEST, "Indiquez le nom du parent ou du responsable de l'enfant.");
+        }
+        String numeroSaisi = enfant ? dto.getAccompagnantTelephone()
+                : dto.getTelephoneClient() != null && !dto.getTelephoneClient().isBlank() ? dto.getTelephoneClient()
+                : (dto.isUrgence() ? dto.getAccompagnantTelephone() : null);
+        if (numeroSaisi == null || numeroSaisi.isBlank()) throw new ResponseStatusException(HttpStatus.BAD_REQUEST, enfant
+                ? "Un enfant n'a pas de téléphone : indiquez celui de son parent ou de son responsable."
+                : dto.isUrgence() ? "Indiquez le téléphone du patient ou celui de la personne qui l'accompagne." : "Le téléphone est obligatoire");
+        String telephone = PhoneUtils.canonical(numeroSaisi);
+        if (telephone == null) throw new ResponseStatusException(HttpStatus.BAD_REQUEST, "Le numéro de téléphone est invalide");
+        rdv.setTelephoneClient(telephone);
+        rdv.setUrgence(dto.isUrgence());
+        rdv.setAccompagnantNom(dto.getAccompagnantNom() == null || dto.getAccompagnantNom().isBlank() ? null : dto.getAccompagnantNom().trim());
+        String telAccompagnant = dto.getAccompagnantTelephone() == null || dto.getAccompagnantTelephone().isBlank() ? null : PhoneUtils.canonical(dto.getAccompagnantTelephone());
+        if (dto.getAccompagnantTelephone() != null && !dto.getAccompagnantTelephone().isBlank() && telAccompagnant == null) {
+            throw new ResponseStatusException(HttpStatus.BAD_REQUEST, "Le numéro de l'accompagnant est invalide");
+        }
+        rdv.setAccompagnantTelephone(telAccompagnant);
+        rdv.setAccompagnantLien(dto.getAccompagnantLien() == null || dto.getAccompagnantLien().isBlank() ? null : dto.getAccompagnantLien().trim());
+        rdv.setAccompagnantSexe(Civilite.normaliserSexe(dto.getAccompagnantSexe()));
+        rdv.setMotif(dto.getMotif() == null || dto.getMotif().isBlank() ? null : dto.getMotif().trim());
+        rdv.setDateRdv(jour);
+        rdv.setHeureRdv(heure);
+        // un ou plusieurs services : le premier est le service principal, les autres sont gardés par leur nom
+        java.util.List<Long> idsServices = new java.util.ArrayList<>();
+        if (dto.getServiceIds() != null) dto.getServiceIds().stream().filter(java.util.Objects::nonNull).distinct().forEach(idsServices::add);
+        else if (dto.getServiceId() != null) idsServices.add(dto.getServiceId());
+        if (!idsServices.isEmpty()) {
+            rdv.setService(resolveService(idsServices.get(0)));
+            String autres = idsServices.stream().skip(1).map(this::resolveService).map(com.cabinet.cabinet.entity.Service::getNom).collect(java.util.stream.Collectors.joining("|"));
+            rdv.setAutresServices(autres.isEmpty() ? null : (autres.length() > 500 ? autres.substring(0, 500) : autres));
+        } else {
+            rdv.setService(resolveService(dto.getServiceId()));
+        }
+        rdv.setPraticien(praticien);
+        rdv.setSansRendezVous(true);
+        rdv.setStatut(StatutRDV.CONFIRME);
+        rdv.setPersonnelConfirmeLe(maintenant);
+        rdv.setRappelEnvoye(true);   // le patient est déjà là : aucun rappel à lui envoyer
+        rdv.setClientAccessTokenHash(hashAccessToken(createAccessToken()));
+        rdv.setCleSuivi(genererCleSuivi());
+
+        RendezVous saved;
+        try {
+            saved = rendezVousRepository.saveAndFlush(rdv);
+        } catch (DataIntegrityViolationException ex) {
+            throw new CreneauIndisponibleException("Cette personne vient d'être prise. Choisissez-en une autre.");
+        }
+        audit.log("RDV_SANS_RDV", "RendezVous", saved.getId(), saved.getNomClient() + " — reçu sans rendez-vous" + (dto.isUrgence() ? " EN URGENCE" : "") + " par " + praticien.getNom() + " (saisi par " + acteur.getNom() + ")"
+                + (saved.getAccompagnantNom() == null ? "" : " — accompagné par " + saved.getAccompagnantNom()));
+        notifications.notifier(praticien, "RDV_ATTRIBUE", dto.isUrgence() ? "URGENCE — patient sans rendez-vous" : "Patient sans rendez-vous", saved,
+                dto.isUrgence() ? "Urgence : un patient vous attend, consultation immédiate" : "Un patient vous attend : consultation immédiate", acteur.getNom());
+        if (acteur.getRole() != Role.SUPER_ADMIN) {
+            prevenirLaReception(saved, "RDV_CONFIRME", dto.isUrgence() ? "URGENCE reçue sans rendez-vous" : "Patient reçu sans rendez-vous", "Reçu par " + praticien.getNom(), acteur.getNom(), null);
+        }
+        return toResponseDTO(saved);
+    }
+
     // ============ CONVERSION ENTITÉ → DTO ============
     private RendezVousResponseDTO toResponseDTO(RendezVous rdv) {
         RendezVousResponseDTO dto = new RendezVousResponseDTO();
         dto.setId(rdv.getId());
         dto.setNomClient(rdv.getNomClient());
         dto.setAgeClient(rdv.getAgeClient());
+        dto.setSexe(rdv.getSexe());
+        dto.setCivilite(Civilite.de(rdv.getAgeClient(), rdv.getSexe()));
         dto.setTelephoneClient(rdv.getTelephoneClient());
         dto.setMotif(rdv.getMotif());
         dto.setServiceId(rdv.getService() == null ? null : rdv.getService().getId());
         dto.setServiceNom(rdv.getService() == null ? null : rdv.getService().getNom());
+        java.util.List<String> servicesNoms = new java.util.ArrayList<>();
+        if (rdv.getService() != null) servicesNoms.add(rdv.getService().getNom());
+        if (rdv.getAutresServices() != null && !rdv.getAutresServices().isBlank()) {
+            for (String nom : rdv.getAutresServices().split("\\|")) if (!nom.isBlank()) servicesNoms.add(nom.trim());
+        }
+        dto.setServicesNoms(servicesNoms);
         dto.setPraticienId(rdv.getPraticien() == null ? null : rdv.getPraticien().getId());
         dto.setPraticienNom(rdv.getPraticien() == null ? null : rdv.getPraticien().getNom());
         dto.setCleSuivi(rdv.getCleSuivi());
@@ -846,6 +1053,13 @@ public class RendezVousService {
         dto.setStatut(rdv.getStatut());
         dto.setDateCreation(rdv.getDateCreation());
         dto.setDeletedAt(rdv.getDeletedAt());
+        dto.setSansRendezVous(Boolean.TRUE.equals(rdv.getSansRendezVous()));
+        dto.setUrgence(Boolean.TRUE.equals(rdv.getUrgence()));
+        dto.setAccompagnantNom(rdv.getAccompagnantNom());
+        dto.setAccompagnantTelephone(rdv.getAccompagnantTelephone());
+        dto.setAccompagnantLien(rdv.getAccompagnantLien());
+        dto.setAccompagnantSexe(rdv.getAccompagnantSexe());
+        dto.setAccompagnantCivilite(rdv.getAccompagnantNom() == null ? null : Civilite.de(Civilite.AGE_ADULTE, rdv.getAccompagnantSexe()));
         return dto;
     }
 }

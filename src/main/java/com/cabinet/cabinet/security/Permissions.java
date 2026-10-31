@@ -22,14 +22,17 @@ public final class Permissions {
     // ---- rendez-vous
     public static final String RDV_VOIR = "RDV_VOIR";
     public static final String RDV_CREER = "RDV_CREER";
+    public static final String RDV_SANS_RDV = "RDV_SANS_RDV";
     public static final String RDV_MODIFIER = "RDV_MODIFIER";
     public static final String RDV_CORBEILLE = "RDV_CORBEILLE";
     public static final String RDV_SUPPRIMER_DEFINITIVEMENT = "RDV_SUPPRIMER_DEFINITIVEMENT";
     public static final String RDV_ATTRIBUER = "RDV_ATTRIBUER";
     public static final String RDV_ACCEPTER = "RDV_ACCEPTER";
     public static final String RDV_CONFIRMER = "RDV_CONFIRMER";
+    public static final String RDV_ANNULER = "RDV_ANNULER";
     public static final String RDV_TERMINER = "RDV_TERMINER";
     public static final String OCCUPATION_VOIR = "OCCUPATION_VOIR";
+    public static final String RDV_NOTIFIER = "RDV_NOTIFIER";
     // ---- patients
     public static final String DOSSIERS_LIRE = "DOSSIERS_LIRE";
     public static final String DOSSIERS_MODIFIER = "DOSSIERS_MODIFIER";
@@ -44,6 +47,8 @@ public final class Permissions {
     public static final String PLANNING_GERER = "PLANNING_GERER";
     public static final String SITE_MODIFIER = "SITE_MODIFIER";
     public static final String JOURNAL_VOIR = "JOURNAL_VOIR";
+    public static final String GARDE_VOIR = "GARDE_VOIR";
+    public static final String GARDE_GERER = "GARDE_GERER";
     // ---- administration (verrouillées)
     public static final String COMPTES_GERER = "COMPTES_GERER";
     public static final String PERMISSIONS_GERER = "PERMISSIONS_GERER";
@@ -56,14 +61,17 @@ public final class Permissions {
     public static final List<Definition> CATALOGUE = List.of(
             new Definition(RDV_VOIR, "Rendez-vous", "Voir les rendez-vous", "Liste, tableau de bord et calendrier des rendez-vous.", false, roles(MED, SF, SEC, INF)),
             new Definition(RDV_CREER, "Rendez-vous", "Créer un rendez-vous", "Saisir un rendez-vous pour un patient.", false, roles(MED, SF, SEC, INF)),
+            new Definition(RDV_SANS_RDV, "Rendez-vous", "Recevoir un patient sans rendez-vous", "Quand un patient se présente au cabinet : voir qui est libre en ce moment et l'envoyer tout de suite en consultation, sans passer par la réservation.", false, roles(SEC)),
             new Definition(RDV_MODIFIER, "Rendez-vous", "Modifier ou mettre à la corbeille un rendez-vous", "Changer la date, l'heure ou les informations ; mettre un rendez-vous à la corbeille.", false, roles(MED, SF, SEC, INF)),
             new Definition(RDV_CORBEILLE, "Rendez-vous", "Voir et restaurer la corbeille", "Consulter les rendez-vous supprimés et les restaurer.", false, roles(SEC)),
             new Definition(RDV_SUPPRIMER_DEFINITIVEMENT, "Rendez-vous", "Supprimer définitivement", "Vider la corbeille (action irréversible).", false, roles()),
-            new Definition(RDV_ATTRIBUER, "Rendez-vous", "Attribuer un rendez-vous à une personne", "Choisir qui prend chaque rendez-vous.", false, roles()),
+            new Definition(RDV_ATTRIBUER, "Rendez-vous", "Attribuer un rendez-vous à une personne", "Choisir qui prend chaque rendez-vous.", false, roles(SEC)),
             new Definition(RDV_ACCEPTER, "Rendez-vous", "Accepter un rendez-vous attribué", "Accepter les rendez-vous confiés à soi (1re confirmation).", false, roles(MED, SF, INF)),
-            new Definition(RDV_CONFIRMER, "Rendez-vous", "Confirmer définitivement un rendez-vous", "2e confirmation : le patient reçoit son SMS.", false, roles()),
+                        new Definition(RDV_CONFIRMER, "Rendez-vous", "Confirmer définitivement un rendez-vous", "2e confirmation : le patient reçoit son SMS. Le personnel soignant ne confirme que ses propres rendez-vous ; celui qui confirme son propre rendez-vous l'accepte du même coup.", false, roles(MED, SF, INF)),
+            new Definition(RDV_ANNULER, "Rendez-vous", "Annuler un rendez-vous", "Annuler un rendez-vous en cours ou confirmé : le patient est prévenu par SMS et le créneau est libéré. Le personnel soignant n'annule que ses propres rendez-vous.", false, roles(MED, SF, SEC, INF)),
             new Definition(RDV_TERMINER, "Rendez-vous", "Marquer une consultation comme terminée", "Clôturer les consultations de ses patients.", false, roles(MED, SF, INF)),
-            new Definition(OCCUPATION_VOIR, "Rendez-vous", "Voir l'occupation du personnel", "Qui est libre ou pris, créneau par créneau.", false, roles()),
+            new Definition(OCCUPATION_VOIR, "Rendez-vous", "Voir l'occupation du personnel", "Qui est libre ou pris, créneau par créneau.", false, roles(SEC)),
+            new Definition(RDV_NOTIFIER, "Rendez-vous", "Être prévenu des nouveaux rendez-vous", "Une notification pour chaque nouveau rendez-vous (réservé sur le site ou saisi par un collègue), puis pour chaque changement, annulation ou mise à la corbeille : comme une réceptionniste qui voit tout arriver et l'attribue à une personne libre.", false, roles(SEC)),
 
             new Definition(DOSSIERS_LIRE, "Patients", "Lire les dossiers patients", "Dossiers, comptes rendus, suivi de grossesse et carnets de vaccination.", false, roles(MED, SF, INF)),
             new Definition(DOSSIERS_MODIFIER, "Patients", "Modifier les dossiers patients", "Écrire dans les dossiers, ouvrir une grossesse, enregistrer un vaccin.", false, roles(MED, SF, INF)),
@@ -78,6 +86,8 @@ public final class Permissions {
             new Definition(PLANNING_GERER, "Cabinet", "Gérer les horaires et les congés", "Horaires, durée des créneaux, jours de fermeture, rappels.", false, roles()),
             new Definition(SITE_MODIFIER, "Cabinet", "Modifier le site public", "Textes, boutons, couleurs du site.", false, roles()),
             new Definition(JOURNAL_VOIR, "Cabinet", "Consulter le journal d'audit", "Qui a fait quoi et quand.", false, roles()),
+            new Definition(GARDE_VOIR, "Cabinet", "Voir le tour de garde", "Qui est de garde chaque jour et chaque nuit.", false, roles(MED, SF, SEC, INF)),
+            new Definition(GARDE_GERER, "Cabinet", "Gérer le tour de garde", "Mettre des personnes de garde, retirer une garde, générer un tour de garde à tour de rôle.", false, roles(SEC)),
 
             new Definition(COMPTES_GERER, "Administration", "Gérer les comptes du personnel", "Créer, modifier, supprimer des comptes et changer les rôles.", true, roles()),
             new Definition(PERMISSIONS_GERER, "Administration", "Gérer les rôles et permissions", "Cette page.", true, roles()),

@@ -26,6 +26,10 @@ public class RendezVousRequestDTO {
     )
     private String telephoneClient;
 
+    /** Facultatif : « HOMME » ou « FEMME » (vide = non précisé). */
+    @Pattern(regexp = "^(HOMME|FEMME)?$", message = "Le sexe doit être HOMME ou FEMME")
+    private String sexe;
+
     @Size(max = 2000, message = "Le motif ne peut pas dépasser 2000 caractères")
     private String motif;
 

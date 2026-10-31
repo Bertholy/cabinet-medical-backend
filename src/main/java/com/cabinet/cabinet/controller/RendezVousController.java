@@ -62,6 +62,17 @@ public class RendezVousController {
         return ResponseEntity.status(HttpStatus.CREATED).body(response);
     }
 
+    // ============ PATIENT SANS RENDEZ-VOUS (secrétariat) : qui est libre maintenant, puis consultation immédiate ============
+    @GetMapping("/sans-rendez-vous/libres")
+    public Map<String, Object> libresMaintenant() {
+        return rendezVousService.praticiensLibresMaintenant();
+    }
+
+    @PostMapping("/sans-rendez-vous")
+    public ResponseEntity<RendezVousResponseDTO> recevoirSansRendezVous(@Valid @RequestBody com.cabinet.cabinet.dto.SansRendezVousRequestDTO dto, Authentication authentication) {
+        return ResponseEntity.status(HttpStatus.CREATED).body(rendezVousService.recevoirSansRendezVous(dto, authentication.getName()));
+    }
+
     // ============ LISTER TOUS LES RDV (médecin) ============
     @GetMapping
     public ResponseEntity<List<RendezVousResponseDTO>> getAll() {
@@ -132,7 +143,8 @@ public class RendezVousController {
 
     @PutMapping("/{id}")
     public ResponseEntity<RendezVousResponseDTO> modifier(@PathVariable Long id, @Valid @RequestBody RendezVousRequestDTO dto, Authentication authentication) {
-        return ResponseEntity.ok(rendezVousService.modifierRendezVous(id, dto, permissions.autorise(authentication, Permissions.RDV_ATTRIBUER), origineDe(authentication)));
+        return ResponseEntity.ok(rendezVousService.modifierRendezVous(id, dto, permissions.autorise(authentication, Permissions.RDV_ATTRIBUER), origineDe(authentication),
+                authentication.getAuthorities().stream().anyMatch(a -> "ROLE_SUPER_ADMIN".equals(a.getAuthority()))));
     }
 
     @DeleteMapping("/{id}")

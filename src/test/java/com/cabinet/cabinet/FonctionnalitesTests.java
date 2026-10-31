@@ -51,6 +51,7 @@ class FonctionnalitesTests {
     @Autowired RendezVousRepository rdvs;
     @Autowired UtilisateurRepository users;
     @Autowired ServiceRepository services;
+    @Autowired com.cabinet.cabinet.config.TarifsDeDepart tarifsDeDepart;
     @Autowired MaladieRepository maladies;
     @Autowired ConsultationRepository consultations;
     @Autowired DossierPatientRepository dossiers;
@@ -587,6 +588,144 @@ class FonctionnalitesTests {
         mvc.perform(interdit.param("nom", "X").param("description", "Y").header("Authorization", secretaire)).andExpect(status().isForbidden());
     }
 
+    @Test
+    void lesTarifsDesServicesSontReservesAuPersonnelEtLePrixSeModifie() throws Exception {
+        com.cabinet.cabinet.entity.Service service = new com.cabinet.cabinet.entity.Service();
+        service.setNom("Echographie tarif");
+        service.setDescription("Examen");
+        service.setImageUrl("/uploads/services/existante.png");
+        service = services.save(service);
+        String url = "/api/services/" + service.getId();
+        // le prix se règle par ceux qui gèrent les services ; vide = pas de tarif, absent = inchangé
+        org.springframework.test.web.servlet.request.MockMultipartHttpServletRequestBuilder avecPrix = org.springframework.test.web.servlet.request.MockMvcRequestBuilders.multipart(url);
+        avecPrix.with(request -> { request.setMethod("PUT"); return request; });
+        mvc.perform(avecPrix.param("nom", "Echographie tarif").param("description", "Examen").param("prix", "25 000").header("Authorization", admin)).andExpect(status().isOk());
+        // la liste publique ne montre jamais le prix ; la liste des tarifs est pour le personnel
+        mvc.perform(get("/api/services")).andExpect(status().isOk()).andExpect(jsonPath("$[?(@.nom == 'Echographie tarif')].prix").doesNotExist());
+        mvc.perform(get("/api/services/tarifs")).andExpect(status().is4xxClientError());
+        mvc.perform(get("/api/services/tarifs").header("Authorization", secretaire)).andExpect(status().isOk())
+                .andExpect(jsonPath("$[?(@.nom == 'Echographie tarif')].prix").value(25000));
+        mvc.perform(get("/api/services/tarifs").header("Authorization", medecin)).andExpect(status().isOk());
+        // une modification sans le champ « prix » le laisse tel quel
+        org.springframework.test.web.servlet.request.MockMultipartHttpServletRequestBuilder sansPrix = org.springframework.test.web.servlet.request.MockMvcRequestBuilders.multipart(url);
+        sansPrix.with(request -> { request.setMethod("PUT"); return request; });
+        mvc.perform(sansPrix.param("nom", "Echographie tarif").param("description", "Examen modifié").header("Authorization", admin)).andExpect(status().isOk());
+        mvc.perform(get("/api/services/tarifs").header("Authorization", secretaire)).andExpect(jsonPath("$[?(@.nom == 'Echographie tarif')].prix").value(25000));
+        // un prix invalide est refusé, un prix vide efface le tarif
+        org.springframework.test.web.servlet.request.MockMultipartHttpServletRequestBuilder invalide = org.springframework.test.web.servlet.request.MockMvcRequestBuilders.multipart(url);
+        invalide.with(request -> { request.setMethod("PUT"); return request; });
+        mvc.perform(invalide.param("nom", "Echographie tarif").param("description", "Examen").param("prix", "beaucoup").header("Authorization", admin)).andExpect(status().isBadRequest());
+        org.springframework.test.web.servlet.request.MockMultipartHttpServletRequestBuilder vide = org.springframework.test.web.servlet.request.MockMvcRequestBuilders.multipart(url);
+        vide.with(request -> { request.setMethod("PUT"); return request; });
+        mvc.perform(vide.param("nom", "Echographie tarif").param("description", "Examen").param("prix", "").header("Authorization", admin)).andExpect(status().isOk());
+        mvc.perform(get("/api/services/tarifs").header("Authorization", secretaire)).andExpect(org.springframework.test.web.servlet.result.MockMvcResultMatchers.content().string(org.hamcrest.Matchers.not(org.hamcrest.Matchers.containsString("25000"))));
+        services.delete(service);
+    }
+
+    @Test
+    void lAdminAjouteUnServiceAvecTarifEtChangeSonPrixDepuisLaListeDesTarifs() throws Exception {
+        String ajout = "{\"nom\":\"Soin du cordon tarif\",\"duree\":\"15 minutes\",\"prix\":5000}";
+        // seul celui qui gère les services ajoute ou modifie un tarif
+        mvc.perform(post("/api/services/tarifs").header("Authorization", secretaire).contentType(MediaType.APPLICATION_JSON).content(ajout)).andExpect(status().isForbidden());
+        MvcResult cree = mvc.perform(post("/api/services/tarifs").header("Authorization", admin).contentType(MediaType.APPLICATION_JSON).content(ajout))
+                .andExpect(status().isCreated()).andExpect(jsonPath("$.prix").value(5000)).andExpect(jsonPath("$.description").value("Prestation du cabinet.")).andReturn();
+        String id = extraire(cree, "id");
+        mvc.perform(get("/api/services/tarifs").header("Authorization", secretaire)).andExpect(jsonPath("$[?(@.nom == 'Soin du cordon tarif')].prix").value(5000));
+        // le service créé existe aussi côté public, sans prix
+        mvc.perform(get("/api/services")).andExpect(jsonPath("$[?(@.nom == 'Soin du cordon tarif')].prix").doesNotExist());
+        mvc.perform(put("/api/services/" + id + "/tarif").header("Authorization", secretaire).contentType(MediaType.APPLICATION_JSON).content("{\"prix\":9000}")).andExpect(status().isForbidden());
+        mvc.perform(put("/api/services/" + id + "/tarif").header("Authorization", admin).contentType(MediaType.APPLICATION_JSON).content("{\"prix\":7500}"))
+                .andExpect(status().isOk()).andExpect(jsonPath("$.prix").value(7500));
+        mvc.perform(put("/api/services/" + id + "/tarif").header("Authorization", admin).contentType(MediaType.APPLICATION_JSON).content("{\"prix\":-1}")).andExpect(status().isBadRequest());
+        mvc.perform(put("/api/services/999999/tarif").header("Authorization", admin).contentType(MediaType.APPLICATION_JSON).content("{\"prix\":100}")).andExpect(status().isNotFound());
+        mvc.perform(post("/api/services/tarifs").header("Authorization", admin).contentType(MediaType.APPLICATION_JSON).content("{\"nom\":\"  \",\"prix\":100}")).andExpect(status().isBadRequest());
+        mvc.perform(put("/api/services/" + id + "/tarif").header("Authorization", admin).contentType(MediaType.APPLICATION_JSON).content("{\"prix\":null}")).andExpect(status().isOk()).andExpect(jsonPath("$.prix").doesNotExist());
+        services.deleteById(Long.parseLong(id));
+    }
+
+    @Test
+    void lesTarifsDeDepartSePosentUneFoisSurLesServicesSansPrix() throws Exception {
+        org.junit.jupiter.api.Assertions.assertEquals(8_000, com.cabinet.cabinet.config.TarifsDeDepart.prixDeDepart("Consultation prénatale"));
+        org.junit.jupiter.api.Assertions.assertEquals(8_000, com.cabinet.cabinet.config.TarifsDeDepart.prixDeDepart("Suivi de grossesse"));
+        org.junit.jupiter.api.Assertions.assertEquals(30_000, com.cabinet.cabinet.config.TarifsDeDepart.prixDeDepart("Échographie obstétricale"));
+        org.junit.jupiter.api.Assertions.assertEquals(60_000, com.cabinet.cabinet.config.TarifsDeDepart.prixDeDepart("Accouchement"));
+        org.junit.jupiter.api.Assertions.assertEquals(15_000, com.cabinet.cabinet.config.TarifsDeDepart.prixDeDepart("Consultation générale"));
+        // pas de tarif relevé : soins après l'accouchement, vaccination, planning familial
+        org.junit.jupiter.api.Assertions.assertNull(com.cabinet.cabinet.config.TarifsDeDepart.prixDeDepart("Soins post-natal"));
+        org.junit.jupiter.api.Assertions.assertNull(com.cabinet.cabinet.config.TarifsDeDepart.prixDeDepart("Soins après l'accouchement"));
+        org.junit.jupiter.api.Assertions.assertNull(com.cabinet.cabinet.config.TarifsDeDepart.prixDeDepart("Vaccination"));
+        org.junit.jupiter.api.Assertions.assertNull(com.cabinet.cabinet.config.TarifsDeDepart.prixDeDepart("Planning familial"));
+
+        com.cabinet.cabinet.entity.ParametresCabinet params = parametresCabinet.findById(1L).orElseGet(com.cabinet.cabinet.entity.ParametresCabinet::new);
+        boolean avant = Boolean.TRUE.equals(params.getTarifsDepartAjoutes());
+        params.setTarifsDepartAjoutes(false);
+        parametresCabinet.save(params);
+        com.cabinet.cabinet.entity.Service sansPrix = new com.cabinet.cabinet.entity.Service();
+        sansPrix.setNom("Echographie depart"); sansPrix.setDescription("x"); sansPrix.setImageUrl("/uploads/services/existante.png");
+        com.cabinet.cabinet.entity.Service avecPrix = new com.cabinet.cabinet.entity.Service();
+        avecPrix.setNom("Consultation depart"); avecPrix.setDescription("x"); avecPrix.setImageUrl("/uploads/services/existante.png"); avecPrix.setPrix(99_000);
+        sansPrix = services.save(sansPrix);
+        avecPrix = services.save(avecPrix);
+        try {
+            org.junit.jupiter.api.Assertions.assertTrue(tarifsDeDepart.appliquer() >= 1);
+            org.junit.jupiter.api.Assertions.assertEquals(30_000, services.findById(sansPrix.getId()).orElseThrow().getPrix());
+            org.junit.jupiter.api.Assertions.assertEquals(99_000, services.findById(avecPrix.getId()).orElseThrow().getPrix());   // un prix déjà fixé n'est jamais écrasé
+            org.junit.jupiter.api.Assertions.assertEquals(0, tarifsDeDepart.appliquer());   // une seule fois
+        } finally {
+            services.deleteById(sansPrix.getId());
+            services.deleteById(avecPrix.getId());
+            params = parametresCabinet.findById(1L).orElseGet(com.cabinet.cabinet.entity.ParametresCabinet::new);
+            params.setTarifsDepartAjoutes(avant);
+            parametresCabinet.save(params);
+        }
+    }
+
+    @Test
+    void laSecretaireVoitArriverLesNouveauxRdvCommeUneReceptionnisteEtNeSePrevientPasElleMeme() throws Exception {
+        notificationRepository.deleteAll();
+        // une réservation du site public : la secrétaire (droit RDV_NOTIFIER d'origine) et le super administrateur sont prévenus ; un médecin ne l'est pas
+        String id = extraire(creer(jourOuvre(3), "09:00:00", "Nouveau Public", "0341999001"), "id");
+        mvc.perform(get("/api/notifications").header("Authorization", secretaire)).andExpect(status().isOk())
+                .andExpect(jsonPath("$.notifications[0].type").value("RDV_NOUVEAU"))
+                .andExpect(jsonPath("$.notifications[0].lien").value("/espace/secretariat?rdv=" + id));
+        mvc.perform(get("/api/notifications").header("Authorization", admin)).andExpect(jsonPath("$.notifications[0].type").value("RDV_NOUVEAU"));
+        mvc.perform(get("/api/notifications").header("Authorization", medecin)).andExpect(jsonPath("$.nonLues").value(0));
+        // un rendez-vous saisi par la secrétaire elle-même : le super administrateur est prévenu, pas elle
+        MvcResult avant = mvc.perform(get("/api/notifications").header("Authorization", secretaire)).andReturn();
+        String nonLuesAvant = extraire(avant, "nonLues");
+        mvc.perform(post("/api/rdv").header("Authorization", secretaire).contentType(MediaType.APPLICATION_JSON).content(rdvJson(jourOuvre(3), "10:30:00", "Saisi Par Secretaire", "0341999002", null)))
+                .andExpect(status().isCreated());
+        MvcResult apres = mvc.perform(get("/api/notifications").header("Authorization", secretaire)).andReturn();
+        org.junit.jupiter.api.Assertions.assertEquals(nonLuesAvant, extraire(apres, "nonLues"), "la secrétaire n'est pas prévenue de ce qu'elle vient de saisir");
+        mvc.perform(get("/api/notifications").header("Authorization", admin)).andExpect(jsonPath("$.notifications[0].message").value(containsString("Saisi Par Secretaire")));
+        // la secrétaire attribue la demande à une personne libre
+        mvc.perform(put("/api/rdv/" + id + "/praticien").header("Authorization", secretaire).contentType(MediaType.APPLICATION_JSON)
+                .content("{\"praticienId\":" + idDe("test.sf@casafami.test") + "}")).andExpect(status().isOk());
+        notificationRepository.deleteAll();
+    }
+
+    @Test
+    void lePersonnelSoignantConfirmeTermineEtAnnuleSesPropresRdvSeulement() throws Exception {
+        String id = extraire(creer(jourOuvre(6), "10:00:00", "Rdv Du Medecin", "0341555001"), "id");
+        mvc.perform(put("/api/rdv/" + id + "/praticien").header("Authorization", admin).contentType(MediaType.APPLICATION_JSON)
+                .content("{\"praticienId\":" + idDe("test.medecin@casafami.test") + "}")).andExpect(status().isOk());
+        // une autre personne du personnel ne peut ni confirmer, ni annuler, ni terminer ce rendez-vous
+        mvc.perform(put("/api/rdv/" + id + "/confirmer").header("Authorization", sageFemme)).andExpect(status().isForbidden());
+        mvc.perform(put("/api/rdv/" + id + "/annuler").header("Authorization", sageFemme)).andExpect(status().isForbidden());
+        mvc.perform(put("/api/rdv/" + id + "/terminer").header("Authorization", sageFemme)).andExpect(status().isForbidden());
+        // la personne attribuée confirme directement (elle accepte du même coup), puis termine
+        mvc.perform(put("/api/rdv/" + id + "/confirmer").header("Authorization", medecin)).andExpect(status().isOk())
+                .andExpect(jsonPath("$.statut").value("CONFIRME")).andExpect(jsonPath("$.personnelConfirme").value(true));
+        mvc.perform(put("/api/rdv/" + id + "/terminer").header("Authorization", medecin)).andExpect(status().isOk()).andExpect(jsonPath("$.statut").value("TERMINE"));
+        // un rendez-vous confirmé peut être annulé par la personne attribuée ; un rendez-vous terminé ne s'annule plus
+        mvc.perform(put("/api/rdv/" + id + "/annuler").header("Authorization", medecin)).andExpect(status().isBadRequest());
+        String autre = extraire(creer(jourOuvre(6), "09:00:00", "Rdv A Annuler", "0341555002"), "id");
+        mvc.perform(put("/api/rdv/" + autre + "/praticien").header("Authorization", admin).contentType(MediaType.APPLICATION_JSON)
+                .content("{\"praticienId\":" + idDe("test.medecin@casafami.test") + "}")).andExpect(status().isOk());
+        mvc.perform(put("/api/rdv/" + autre + "/confirmer").header("Authorization", medecin)).andExpect(status().isOk());
+        mvc.perform(put("/api/rdv/" + autre + "/annuler").header("Authorization", medecin)).andExpect(status().isOk()).andExpect(jsonPath("$.statut").value("ANNULE"));
+    }
+
     private Long idDe(String email) {
         return users.findByEmailIgnoreCase(email).orElseThrow().getId();
     }
@@ -759,7 +898,7 @@ class FonctionnalitesTests {
         mvc.perform(get("/api/admin/occupation").param("date", date.toString()).header("Authorization", admin))
                 .andExpect(jsonPath("$.personnel[?(@.nom == 'Test SAGE_FEMME')].total").value(1))
                 .andExpect(jsonPath("$.sansPraticien.length()").value(0));
-        mvc.perform(get("/api/admin/occupation").param("date", date.toString()).header("Authorization", secretaire)).andExpect(status().isForbidden());
+        mvc.perform(get("/api/admin/occupation").param("date", date.toString()).header("Authorization", secretaire)).andExpect(status().isOk());   // la secrétaire attribue les rendez-vous : elle voit l'occupation
         mvc.perform(get("/api/admin/occupation").param("date", date.toString()).header("Authorization", medecin)).andExpect(status().isForbidden());
     }
 
@@ -798,8 +937,10 @@ class FonctionnalitesTests {
                 .andExpect(jsonPath("$.notifications[0].message").value(containsString("Nouvelle Patiente")))
                 .andExpect(jsonPath("$.notifications[0].creePar").value("Le patient"))
                 .andExpect(jsonPath("$.notifications[0].lien").value("/admin/dashboard?rdv=" + id));
-        // les autres membres du personnel ne sont pas dérangés : c'est le super administrateur qui attribue
-        for (String jeton : new String[]{medecin, sageFemme, secretaire}) {
+        // la secrétaire, qui joue le rôle de réceptionniste, voit arriver la demande et l'ouvre sur son tableau de bord ; médecins et sages-femmes ne sont pas dérangés
+        mvc.perform(get("/api/notifications").header("Authorization", secretaire)).andExpect(jsonPath("$.nonLues").value(1))
+                .andExpect(jsonPath("$.notifications[0].type").value("RDV_NOUVEAU")).andExpect(jsonPath("$.notifications[0].lien").value("/espace/secretariat?rdv=" + id));
+        for (String jeton : new String[]{medecin, sageFemme}) {
             mvc.perform(get("/api/notifications").header("Authorization", jeton)).andExpect(jsonPath("$.nonLues").value(0));
         }
         // le lien mène à une demande que le super administrateur peut ouvrir, puis attribuer
@@ -948,20 +1089,20 @@ class FonctionnalitesTests {
     }
 
     @Test
-    void lePraticienAccepteSeulementSesRdv_etSecretaireNeChangePasLaPersonne() throws Exception {
+    void lePraticienAccepteSeulementSesRdv_etSansLeDroitDAttribuerOnNeChangePasLaPersonne() throws Exception {
         String id = extraire(creer(jourOuvre(1), "10:30:00", "Mon Rdv Patient", "0341111111"), "id");
         mvc.perform(put("/api/rdv/" + id + "/praticien").header("Authorization", admin).contentType(MediaType.APPLICATION_JSON)
                 .content("{\"praticienId\":" + idDe("test.medecin@casafami.test") + "}")).andExpect(status().isOk());
         mvc.perform(put("/api/rdv/" + id + "/accepter").header("Authorization", sageFemme)).andExpect(status().isForbidden()); // pas le sien
-        mvc.perform(put("/api/rdv/" + id + "/confirmer").header("Authorization", medecin)).andExpect(status().isForbidden());    // la confirmation finale est au super administrateur
+        mvc.perform(put("/api/rdv/" + id + "/confirmer").header("Authorization", sageFemme)).andExpect(status().isForbidden());    // pas le sien : on ne confirme que ses propres rendez-vous
         mvc.perform(put("/api/rdv/" + id + "/accepter").header("Authorization", medecin)).andExpect(status().isOk()).andExpect(jsonPath("$.personnelConfirme").value(true)); // le sien
-        // la secrétaire modifie le rendez-vous : la personne attribuée est conservée même si elle en envoie une autre
+        // une sage-femme (sans le droit d'attribuer) modifie le rendez-vous : la personne attribuée est conservée même si elle en envoie une autre
         LocalDate date = jourOuvre(1);
-        mvc.perform(put("/api/rdv/" + id).header("Authorization", secretaire).contentType(MediaType.APPLICATION_JSON)
+        mvc.perform(put("/api/rdv/" + id).header("Authorization", sageFemme).contentType(MediaType.APPLICATION_JSON)
                 .content(rdvJson(date, "10:30:00", "Mon Rdv Patient", "0341111111", idDe("test.sf@casafami.test"))))
                 .andExpect(status().isOk()).andExpect(jsonPath("$.praticienNom").value("Test MEDECIN"));
         // déplacement du rendez-vous : la personne attribuée est prévenue
-        mvc.perform(put("/api/rdv/" + id).header("Authorization", secretaire).contentType(MediaType.APPLICATION_JSON)
+        mvc.perform(put("/api/rdv/" + id).header("Authorization", sageFemme).contentType(MediaType.APPLICATION_JSON)
                 .content(rdvJson(date, "14:00:00", "Mon Rdv Patient", "0341111111", null))).andExpect(status().isOk())
                 .andExpect(jsonPath("$.personnelConfirme").value(false)); // nouvel horaire en attente : la personne doit accepter de nouveau
         mvc.perform(get("/api/notifications").header("Authorization", medecin)).andExpect(jsonPath("$.notifications[0].type").value("RDV_DEPLACE"));

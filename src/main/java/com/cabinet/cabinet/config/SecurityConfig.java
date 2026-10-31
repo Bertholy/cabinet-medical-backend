@@ -50,6 +50,9 @@ public class SecurityConfig {
                 // ============ ENDPOINTS PUBLICS ============
                 .requestMatchers("/api/auth/**", "/error").permitAll()
                 .requestMatchers(HttpMethod.GET, "/uploads/**").permitAll()
+                // tarifs : personnel seulement (ceux qui voient les rendez-vous, et ceux qui gèrent les services), avant la règle publique sur /api/services/**
+                .requestMatchers(HttpMethod.GET, "/api/services/tarifs").access((authentication, contexte) -> new org.springframework.security.authorization.AuthorizationDecision(
+                        permissions.autorise(authentication.get(), Permissions.RDV_VOIR) || permissions.autorise(authentication.get(), Permissions.SERVICES_GERER)))
                 .requestMatchers(HttpMethod.GET, "/api/services/**", "/api/planning", "/api/planning/**", "/api/site-content").permitAll()
                 .requestMatchers(HttpMethod.GET, "/api/theme").permitAll()
 
@@ -62,6 +65,8 @@ public class SecurityConfig {
                 .requestMatchers("/api/admin/planning", "/api/admin/jours-fermes", "/api/admin/jours-fermes/**", "/api/admin/rappels", "/api/admin/rappels/**").access(permissions.exige(Permissions.PLANNING_GERER))
                 .requestMatchers("/api/admin/occupation", "/api/admin/occupation/**").access(permissions.exige(Permissions.OCCUPATION_VOIR))
                 .requestMatchers("/api/admin/journal", "/api/admin/journal/**").access(permissions.exige(Permissions.JOURNAL_VOIR))
+                .requestMatchers(HttpMethod.GET, "/api/gardes", "/api/gardes/aujourdhui").access(permissions.exige(Permissions.GARDE_VOIR))
+                .requestMatchers("/api/gardes", "/api/gardes/**").access(permissions.exige(Permissions.GARDE_GERER))
 
                 // ============ ADMINISTRATION (verrouillée : super administrateur) ============
                 .requestMatchers("/api/admin/users", "/api/admin/users/**").access(permissions.exige(Permissions.COMPTES_GERER))
@@ -94,6 +99,8 @@ public class SecurityConfig {
                 .requestMatchers(HttpMethod.PUT, "/api/rdv/*/annuler", "/api/rendez-vous/*/annuler").permitAll()
 
                 // ============ RENDEZ-VOUS (personnel) ============
+                .requestMatchers(HttpMethod.GET, "/api/rdv/sans-rendez-vous/libres", "/api/rendez-vous/sans-rendez-vous/libres").access(permissions.exige(Permissions.RDV_SANS_RDV))
+                .requestMatchers(HttpMethod.POST, "/api/rdv/sans-rendez-vous", "/api/rendez-vous/sans-rendez-vous").access(permissions.exige(Permissions.RDV_SANS_RDV))
                 .requestMatchers(HttpMethod.GET, "/api/rdv/corbeille", "/api/rendez-vous/corbeille").access(permissions.exige(Permissions.RDV_CORBEILLE))
                 .requestMatchers(HttpMethod.PUT, "/api/rdv/*/restaurer", "/api/rendez-vous/*/restaurer").access(permissions.exige(Permissions.RDV_CORBEILLE))
                 .requestMatchers(HttpMethod.DELETE, "/api/rdv/corbeille", "/api/rdv/corbeille/**", "/api/rendez-vous/corbeille", "/api/rendez-vous/corbeille/**").access(permissions.exige(Permissions.RDV_SUPPRIMER_DEFINITIVEMENT))

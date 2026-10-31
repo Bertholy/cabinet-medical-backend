@@ -48,6 +48,7 @@ public class PermissionService implements ApplicationRunner {
     private final PermissionUtilisateurRepository surcharges;
     private final UtilisateurRepository utilisateurs;
     private final AuditService audit;
+    private final com.cabinet.cabinet.repository.ParametresCabinetRepository parametres;
     private final NotificationService notifications;
     private final Map<String, Entree> cache = new ConcurrentHashMap<>();
 
@@ -74,7 +75,39 @@ public class PermissionService implements ApplicationRunner {
                 }
             }
         }
+        migrerDroitsSecretaire();
+        migrerDroitsPersonnel();
         invalider();
+    }
+
+    /** Droits ajoutés à la secrétaire (installations existantes) : occupation du personnel, attribution des rendez-vous, tour de garde. Une seule fois ; ensuite le super administrateur reste libre de les retirer. */
+    private static final List<String> DROITS_SECRETAIRE_AJOUTES = List.of(Permissions.OCCUPATION_VOIR, Permissions.RDV_ATTRIBUER, Permissions.GARDE_GERER);
+
+    /** Le personnel soignant peut confirmer ses propres rendez-vous : droit accordé une seule fois aux installations existantes, que l'administration peut ensuite retirer. */
+    private void migrerDroitsPersonnel() {
+        com.cabinet.cabinet.entity.ParametresCabinet p = parametres.findById(1L).orElseGet(com.cabinet.cabinet.entity.ParametresCabinet::new);
+        if (Boolean.TRUE.equals(p.getDroitsPersonnelRdvMigres())) return;
+        for (Role role : List.of(Role.MEDECIN, Role.SAGE_FEMME, Role.INFIRMIERE)) {
+            PermissionRole ligne = roles.findByRoleAndCode(role, Permissions.RDV_CONFIRMER).orElseGet(() -> { PermissionRole n = new PermissionRole(); n.setRole(role); n.setCode(Permissions.RDV_CONFIRMER); return n; });
+            ligne.setAccorde(true);
+            roles.save(ligne);
+        }
+        p.setDroitsPersonnelRdvMigres(true);
+        parametres.save(p);
+        audit.logAs("système", "SYSTEME", "PERMISSIONS_MISES_A_NIVEAU", "Role", null, "Personnel soignant : confirmer ses propres rendez-vous");
+    }
+
+    private void migrerDroitsSecretaire() {
+        com.cabinet.cabinet.entity.ParametresCabinet p = parametres.findById(1L).orElseGet(com.cabinet.cabinet.entity.ParametresCabinet::new);
+        if (Boolean.TRUE.equals(p.getDroitsSecretaireGardeMigres())) return;
+        for (String code : DROITS_SECRETAIRE_AJOUTES) {
+            PermissionRole ligne = roles.findByRoleAndCode(Role.SECRETAIRE, code).orElseGet(() -> { PermissionRole n = new PermissionRole(); n.setRole(Role.SECRETAIRE); n.setCode(code); return n; });
+            ligne.setAccorde(true);
+            roles.save(ligne);
+        }
+        p.setDroitsSecretaireGardeMigres(true);
+        parametres.save(p);
+        audit.logAs("système", "SYSTEME", "PERMISSIONS_MISES_A_NIVEAU", "Role", null, "Secrétaires : " + String.join(", ", DROITS_SECRETAIRE_AJOUTES));
     }
 
     // ======================================================================== vérification
