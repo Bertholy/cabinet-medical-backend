@@ -9,7 +9,9 @@ public final class Civilite {
 
     public static final String HOMME = "HOMME";
     public static final String FEMME = "FEMME";
-    /** Âge à partir duquel un patient est un adulte (Mr / Mme). */
+    /** Âge à partir duquel un patient est un adolescent (avant : un enfant). */
+    public static final int AGE_ADOLESCENT = 12;
+    /** Âge à partir duquel un patient est un adulte (Mr / Mme) ; de 12 à 17 ans c'est un adolescent. Un mineur reste suivi par son parent ou son responsable. */
     public static final int AGE_ADULTE = 18;
 
     /** « HOMME », « FEMME » ou null (valeur vide ou inconnue) : forme enregistrée du sexe. */
@@ -19,9 +21,18 @@ public final class Civilite {
         return HOMME.equals(valeur) || FEMME.equals(valeur) ? valeur : null;
     }
 
-    /** « Enfant », « Mr », « Mme », ou null quand on ne sait pas (adulte dont le sexe n'est pas précisé). */
+    /** Catégorie d'un patient pour les listes et les statistiques : ENFANT (moins de 12 ans), ADOLESCENT (12 à 17 ans), puis FEMME, HOMME ou NON_PRECISE pour un adulte. */
+    public static String categorie(Integer age, String sexe) {
+        if (age != null && age < AGE_ADOLESCENT) return "ENFANT";
+        if (age != null && age < AGE_ADULTE) return "ADOLESCENT";
+        String s = normaliserSexe(sexe);
+        return s == null ? "NON_PRECISE" : s;
+    }
+
+    /** « Enfant » (moins de 12 ans), « Adolescent » (12 à 17 ans), « Mr », « Mme », ou null quand on ne sait pas (adulte dont le sexe n'est pas précisé). */
     public static String de(Integer age, String sexe) {
-        if (age != null && age < AGE_ADULTE) return "Enfant";
+        if (age != null && age < AGE_ADOLESCENT) return "Enfant";
+        if (age != null && age < AGE_ADULTE) return "Adolescent";
         String s = normaliserSexe(sexe);
         if (HOMME.equals(s)) return "Mr";
         if (FEMME.equals(s)) return "Mme";

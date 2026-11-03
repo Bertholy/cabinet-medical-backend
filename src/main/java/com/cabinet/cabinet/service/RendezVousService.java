@@ -177,6 +177,19 @@ public class RendezVousService {
                 .toList();
     }
 
+    /** Ajoute à chaque rendez-vous : « nouveau » ou « ancien » client, rang du passage et nombre total de passages (même nom et même numéro, voir ClientHistorique). */
+    private List<RendezVousResponseDTO> avecHistorique(List<RendezVousResponseDTO> liste) {
+        com.cabinet.cabinet.util.ClientHistorique.Index index = new com.cabinet.cabinet.util.ClientHistorique.Index();
+        for (Object[] p : rendezVousRepository.findPassages()) index.ajouter((String) p[0], (String) p[1], (LocalDate) p[2], (LocalTime) p[3], (Long) p[4]);
+        for (RendezVousResponseDTO dto : liste) {
+            int avant = index.passagesAvant(dto.getNomClient(), dto.getTelephoneClient(), dto.getDateRdv(), dto.getHeureRdv(), dto.getId());
+            dto.setNouveauClient(avant == 0);
+            dto.setPassage(avant + 1);
+            dto.setPassagesTotal(Math.max(index.passages(dto.getNomClient(), dto.getTelephoneClient()), avant));
+        }
+        return liste;
+    }
+
     @Transactional(readOnly = true)
     public List<RendezVousResponseDTO> getRendezVousDuJour(Long praticienId) {
         LocalDate aujourdHui = LocalDate.now(CABINET_ZONE);
@@ -188,7 +201,7 @@ public class RendezVousService {
         List<RendezVous> result = praticienId == null
                 ? rendezVousRepository.findBySupprimeFalseAndDateRdvBetweenOrderByDateRdvAscHeureRdvAsc(debut, fin)
                 : rendezVousRepository.findBySupprimeFalseAndPraticienIdAndDateRdvBetweenOrderByDateRdvAscHeureRdvAsc(praticienId, debut, fin);
-        return result.stream().map(this::toResponseDTO).toList();
+        return avecHistorique(result.stream().map(this::toResponseDTO).toList());
     }
 
     @Transactional(readOnly = true)

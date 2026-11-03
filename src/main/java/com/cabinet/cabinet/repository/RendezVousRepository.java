@@ -28,6 +28,14 @@ public interface RendezVousRepository extends JpaRepository<RendezVous, Long> {
 
     List<RendezVous> findByTelephoneClient(String telephoneClient);
 
+    /** Les passages détaillés de tous les clients (non annulés, hors corbeille), du plus ancien au plus récent : nom, téléphone, âge, sexe, date, heure, identifiant. Sert à la liste des patients. */
+    @Query("select r.nomClient, r.telephoneClient, r.ageClient, r.sexe, r.dateRdv, r.heureRdv, r.id from RendezVous r where (r.supprime = false or r.supprime is null) and r.statut <> com.cabinet.cabinet.enums.StatutRDV.ANNULE order by r.dateRdv asc, r.heureRdv asc, r.id asc")
+    List<Object[]> findPassagesDetailles();
+
+    /** Les passages de tous les clients (rendez-vous ni annulés ni à la corbeille) : nom, téléphone, date, heure, identifiant. Sert à reconnaître un client qui revient. */
+    @Query("select r.nomClient, r.telephoneClient, r.dateRdv, r.heureRdv, r.id from RendezVous r where (r.supprime = false or r.supprime is null) and r.statut <> com.cabinet.cabinet.enums.StatutRDV.ANNULE")
+    List<Object[]> findPassages();
+
     /** Le paramètre est une clé de recherche (voir PhoneUtils.searchKey) : 261… pour Madagascar, sinon les chiffres. */
     @Query(value = "SELECT * FROM rendez_vous WHERE COALESCE(supprime, false) = false AND " +
             "CASE WHEN regexp_replace(telephone_client, '[^0-9]', '', 'g') LIKE '0%' " +
@@ -95,6 +103,21 @@ public interface RendezVousRepository extends JpaRepository<RendezVous, Long> {
             "GROUP BY nom_client, telephone_client ORDER BY nom_client LIMIT :limite", nativeQuery = true)
     List<Object[]> rechercherPatients(@Param("from") String from, @Param("to") String to, @Param("nom") String nom,
                                       @Param("chiffres") String chiffres, @Param("limite") int limite);
+
+    /**
+     * Clients déjà venus (rendez-vous ni annulés ni à la corbeille) dont le nom contient le mot donné : nom, téléphone, nombre de passages, dernier passage.
+     * Sert à dire à la secrétaire, pendant qu'elle tape un nom, s'il s'agit d'un patient existant ou d'un nouveau (voir VerificationPatientService).
+     */
+    @Query(value = "SELECT nom_client, telephone_client, count(*), max(date_rdv) FROM rendez_vous WHERE COALESCE(supprime, false) = false AND statut <> 'ANNULE' AND " +
+            "lower(translate(nom_client, :from, :to)) LIKE '%' || :mot || '%' GROUP BY nom_client, telephone_client LIMIT 300", nativeQuery = true)
+    List<Object[]> clientsParMot(@Param("from") String from, @Param("to") String to, @Param("mot") String mot);
+
+    /** Clients déjà venus avec ce numéro de téléphone (clé de recherche : voir PhoneUtils.searchKey) : nom, téléphone, nombre de passages, dernier passage. */
+    @Query(value = "SELECT nom_client, telephone_client, count(*), max(date_rdv) FROM rendez_vous WHERE COALESCE(supprime, false) = false AND statut <> 'ANNULE' AND " +
+            "CASE WHEN regexp_replace(telephone_client, '[^0-9]', '', 'g') LIKE '0%' " +
+            "THEN '261' || substring(regexp_replace(telephone_client, '[^0-9]', '', 'g') from 2) " +
+            "ELSE regexp_replace(telephone_client, '[^0-9]', '', 'g') END = :telephone GROUP BY nom_client, telephone_client LIMIT 50", nativeQuery = true)
+    List<Object[]> clientsParTelephone(@Param("telephone") String telephone);
 
     /**
      * Rendez-vous dont le nom contient le mot donné (sans tenir compte des accents ni de la casse), à partir d'une date.

@@ -47,4 +47,10 @@ public class RendezVousResponseDTO {
     private String accompagnantSexe;
     /** « Mr » ou « Mme » d'après le sexe de l'accompagnant (adulte), vide si inconnu. */
     private String accompagnantCivilite;
+    /** Premier passage de ce client au cabinet (aucun rendez-vous non annulé avant celui-ci) ; null quand l'historique n'est pas calculé. */
+    private Boolean nouveauClient;
+    /** Rang de ce passage pour ce client : 1 = premier passage, 2 = deuxième… ; null quand l'historique n'est pas calculé. */
+    private Integer passage;
+    /** Nombre total de passages (rendez-vous non annulés) de ce client ; null quand l'historique n'est pas calculé. */
+    private Integer passagesTotal;
 }

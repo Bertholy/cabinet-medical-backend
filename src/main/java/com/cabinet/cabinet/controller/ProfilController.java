@@ -32,6 +32,9 @@ public class ProfilController {
                                        @NotBlank(message = "Le nouveau mot de passe est obligatoire")
                                        @Size(min = 10, max = 72, message = "Le nouveau mot de passe doit contenir entre 10 et 72 caractères") String nouveauMotDePasse) { }
 
+    public record ModificationProfil(@NotBlank(message = "Le nom est obligatoire") @Size(max = 100, message = "Le nom ne peut pas dépasser 100 caractères") String nom,
+                                     @Size(max = 20, message = "Le téléphone ne peut pas dépasser 20 caractères") String telephone) { }
+
     @GetMapping
     public ProfilResponseDTO getProfile(Authentication authentication) {
         return toResponse(findUser(authentication));
@@ -46,6 +49,18 @@ public class ProfilController {
         user.setPhotoUrl(newPhoto);
         Utilisateur saved = users.save(user);
         imageStorageService.deleteStoredImage("profiles", oldPhoto);
+        return toResponse(saved);
+    }
+
+    /** Chaque membre du personnel peut corriger son propre nom et son téléphone (l'e-mail et le rôle restent à la charge de l'administration). */
+    @PutMapping
+    @Transactional
+    public ProfilResponseDTO modifier(Authentication authentication, @Valid @RequestBody ModificationProfil request) {
+        Utilisateur user = findUser(authentication);
+        user.setNom(request.nom().trim());
+        user.setTelephone(request.telephone() == null || request.telephone().isBlank() ? null : request.telephone().trim());
+        Utilisateur saved = users.save(user);
+        audit.log("PROFIL_MODIFIE", "Utilisateur", saved.getId(), saved.getEmail());
         return toResponse(saved);
     }
 
@@ -69,6 +84,6 @@ public class ProfilController {
     }
 
     private ProfilResponseDTO toResponse(Utilisateur user) {
-        return new ProfilResponseDTO(user.getId(), user.getNom(), user.getEmail(), user.getRole(), user.getPhotoUrl(), permissions.de(user));
+        return new ProfilResponseDTO(user.getId(), user.getNom(), user.getEmail(), user.getTelephone(), user.getRole(), user.getPhotoUrl(), permissions.de(user));
     }
 }

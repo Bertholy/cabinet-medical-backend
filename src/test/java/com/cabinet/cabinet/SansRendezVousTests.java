@@ -131,7 +131,7 @@ class SansRendezVousTests extends BaseApiTest {
                 .andExpect(status().isCreated()).andExpect(jsonPath("$.sexe").value("HOMME")).andExpect(jsonPath("$.civilite").value("Mr"));
         mvc.perform(post("/api/rdv/sans-rendez-vous").header("Authorization", secretaire).contentType(MediaType.APPLICATION_JSON).content(corps(sfId, "Rasoa Marie", 40, "FEMME")))
                 .andExpect(status().isCreated()).andExpect(jsonPath("$.civilite").value("Mme"));
-        // avant 18 ans : « Enfant », quel que soit le sexe ; la civilité est recalculée à chaque lecture
+        // avant 12 ans : « Enfant », de 12 à 17 ans : « Adolescent », quel que soit le sexe ; la civilité est recalculée à chaque lecture
         rdvs.deleteAll();   // le médecin redevient libre
         mvc.perform(post("/api/rdv/sans-rendez-vous").header("Authorization", admin).contentType(MediaType.APPLICATION_JSON).content(corpsEnfant(medecinId, "Petit Lova", 7, "HOMME")))
                 .andExpect(status().isCreated()).andExpect(jsonPath("$.civilite").value("Enfant")).andExpect(jsonPath("$.sexe").value("HOMME"));
@@ -223,7 +223,9 @@ class SansRendezVousTests extends BaseApiTest {
 
     @Test
     void civilite_calculee_par_la_regle_commune() {
-        org.junit.jupiter.api.Assertions.assertEquals("Enfant", com.cabinet.cabinet.util.Civilite.de(17, "FEMME"));
+        org.junit.jupiter.api.Assertions.assertEquals("Adolescent", com.cabinet.cabinet.util.Civilite.de(17, "FEMME"));
+        org.junit.jupiter.api.Assertions.assertEquals("Adolescent", com.cabinet.cabinet.util.Civilite.de(12, "HOMME"));
+        org.junit.jupiter.api.Assertions.assertEquals("Enfant", com.cabinet.cabinet.util.Civilite.de(11, "FEMME"));
         org.junit.jupiter.api.Assertions.assertEquals("Mme", com.cabinet.cabinet.util.Civilite.de(18, "FEMME"));
         org.junit.jupiter.api.Assertions.assertEquals("Mr", com.cabinet.cabinet.util.Civilite.de(18, "homme"));
         org.junit.jupiter.api.Assertions.assertNull(com.cabinet.cabinet.util.Civilite.de(30, null));

@@ -58,6 +58,7 @@ public class StatsController {
         body.put("nouveauxPatients", jdbc.queryForObject(
                 "select count(*) from (select r.telephone_client, min(r.date_rdv) premier from rendez_vous r where " + ACTIFS
                         + " group by r.telephone_client) t where t.premier between ? and ?", Long.class, sd, sf));
+        body.put("frequentation", frequentation(d, f));
         body.put("parService", compter("select coalesce(s.nom, 'Non précisé') libelle, count(*) nb from rendez_vous r left join service s on s.id = r.service_id where "
                 + ACTIFS + " and r.statut <> 'ANNULE' and r.date_rdv between ? and ? group by 1 order by 2 desc, 1", sd, sf));
         body.put("parPraticien", compter("select coalesce(u.nom, 'Non attribué') libelle, count(*) nb from rendez_vous r left join utilisateur u on u.id = r.praticien_id where "
@@ -97,6 +98,53 @@ public class StatsController {
                     ligne.put("total", (Long) ligne.get("total") + rs.getLong(3));
                 }, Date.valueOf(debut.atDay(1)), Date.valueOf(fin.atEndOfMonth()));
         return new ArrayList<>(parMois.values());
+    }
+
+    /**
+     * Fréquentation de la période : passages (rendez-vous non annulés), clients distincts, nouveaux (premier passage de leur vie dans la période) et anciens,
+     * puis la même chose par catégorie : femmes, hommes, adolescents (12 à 17 ans), enfants (moins de 12 ans) et « non précisé » (adulte dont le sexe n'est pas renseigné).
+     * Un client = même nom et même numéro (voir ClientHistorique) ; sa catégorie est celle de son dernier passage de la période.
+     */
+    private Map<String, Object> frequentation(LocalDate debut, LocalDate fin) {
+        record Client(String categorie, int passages, boolean nouveau) { }
+        Map<String, java.time.LocalDate> premierPassage = new java.util.HashMap<>();
+        Map<String, Client> clients = new LinkedHashMap<>();
+        jdbc.query("select r.nom_client, r.telephone_client, r.age_client, r.sexe, r.date_rdv from rendez_vous r where " + ACTIFS
+                + " and r.statut <> 'ANNULE' and r.date_rdv <= ? order by r.date_rdv, r.heure_rdv, r.id", rs -> {
+            String cle = com.cabinet.cabinet.util.ClientHistorique.cle(rs.getString(1), rs.getString(2));
+            LocalDate jour = rs.getDate(5).toLocalDate();
+            premierPassage.putIfAbsent(cle, jour);
+            if (jour.isBefore(debut)) return;
+            int age = rs.getInt(3);
+            String categorie = com.cabinet.cabinet.util.Civilite.categorie(age, rs.getString(4));
+            Client avant = clients.get(cle);
+            clients.put(cle, new Client(categorie, (avant == null ? 0 : avant.passages()) + 1, !premierPassage.get(cle).isBefore(debut)));
+        }, Date.valueOf(fin));
+
+        Map<String, String> libelles = new LinkedHashMap<>();
+        libelles.put("FEMME", "Femmes"); libelles.put("HOMME", "Hommes"); libelles.put("ADOLESCENT", "Adolescents"); libelles.put("ENFANT", "Enfants"); libelles.put("NON_PRECISE", "Non précisé");
+        Map<String, long[]> parCategorie = new LinkedHashMap<>();   // patients, passages, nouveaux
+        libelles.keySet().forEach(code -> parCategorie.put(code, new long[3]));
+        long passages = 0, nouveaux = 0;
+        for (Client c : clients.values()) {
+            long[] ligne = parCategorie.get(c.categorie());
+            ligne[0]++; ligne[1] += c.passages(); if (c.nouveau()) { ligne[2]++; nouveaux++; }
+            passages += c.passages();
+        }
+        List<Map<String, Object>> lignes = new ArrayList<>();
+        parCategorie.forEach((code, v) -> {
+            Map<String, Object> l = new LinkedHashMap<>();
+            l.put("code", code); l.put("libelle", libelles.get(code));
+            l.put("patients", v[0]); l.put("passages", v[1]); l.put("nouveaux", v[2]); l.put("anciens", v[0] - v[2]);
+            lignes.add(l);
+        });
+        Map<String, Object> resultat = new LinkedHashMap<>();
+        resultat.put("passages", passages);
+        resultat.put("patients", (long) clients.size());
+        resultat.put("nouveaux", nouveaux);
+        resultat.put("anciens", clients.size() - nouveaux);
+        resultat.put("parCategorie", lignes);
+        return resultat;
     }
 
     private List<Map<String, Object>> compter(String sql, Object... args) {

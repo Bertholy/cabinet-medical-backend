@@ -2,4 +2,4 @@ package com.cabinet.cabinet.dto;
 
 import com.cabinet.cabinet.enums.Role;
 
-public record ProfilResponseDTO(Long id, String nom, String email, Role role, String photoUrl, java.util.Set<String> permissions) { }
+public record ProfilResponseDTO(Long id, String nom, String email, String telephone, Role role, String photoUrl, java.util.Set<String> permissions) { }
