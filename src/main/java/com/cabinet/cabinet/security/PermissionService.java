@@ -77,6 +77,7 @@ public class PermissionService implements ApplicationRunner {
         }
         migrerDroitsSecretaire();
         migrerDroitsPersonnel();
+        migrerDroitSecretaireConfirmer();
         invalider();
     }
 
@@ -95,6 +96,18 @@ public class PermissionService implements ApplicationRunner {
         p.setDroitsPersonnelRdvMigres(true);
         parametres.save(p);
         audit.logAs("système", "SYSTEME", "PERMISSIONS_MISES_A_NIVEAU", "Role", null, "Personnel soignant : confirmer ses propres rendez-vous");
+    }
+
+    /** La secrétaire confirme les rendez-vous que le personnel a acceptés : droit accordé une seule fois aux installations existantes, que l'administration peut ensuite retirer. */
+    private void migrerDroitSecretaireConfirmer() {
+        com.cabinet.cabinet.entity.ParametresCabinet p = parametres.findById(1L).orElseGet(com.cabinet.cabinet.entity.ParametresCabinet::new);
+        if (Boolean.TRUE.equals(p.getDroitsSecretaireConfirmerMigres())) return;
+        PermissionRole ligne = roles.findByRoleAndCode(Role.SECRETAIRE, Permissions.RDV_CONFIRMER).orElseGet(() -> { PermissionRole n = new PermissionRole(); n.setRole(Role.SECRETAIRE); n.setCode(Permissions.RDV_CONFIRMER); return n; });
+        ligne.setAccorde(true);
+        roles.save(ligne);
+        p.setDroitsSecretaireConfirmerMigres(true);
+        parametres.save(p);
+        audit.logAs("système", "SYSTEME", "PERMISSIONS_MISES_A_NIVEAU", "Role", null, "Secrétaires : confirmer les rendez-vous acceptés");
     }
 
     private void migrerDroitsSecretaire() {

@@ -264,6 +264,15 @@ public class RendezVousController {
         return ResponseEntity.ok(rendezVousService.confirmerRendezVous(id, authentication.getName()));
     }
 
+    /** Raison (facultative) pour laquelle la personne attribuée décline le rendez-vous. */
+    public record DeclinRequest(@jakarta.validation.constraints.Size(max = 300, message = "La raison ne peut pas dépasser 300 caractères") String motif) { }
+
+    // ============ DÉCLINER UN RDV ATTRIBUÉ (la personne concernée) : il retourne à la réception pour être confié à quelqu'un d'autre ============
+    @PutMapping("/{id}/decliner")
+    public ResponseEntity<RendezVousResponseDTO> decliner(@PathVariable Long id, @Valid @RequestBody(required = false) DeclinRequest request, Authentication authentication) {
+        return ResponseEntity.ok(rendezVousService.declinerRendezVous(id, authentication.getName(), request == null ? null : request.motif()));
+    }
+
     // ============ ACCEPTER UN RDV ATTRIBUÉ (la personne concernée) ============
     @PutMapping("/{id}/accepter")
     public ResponseEntity<RendezVousResponseDTO> accepter(@PathVariable Long id, Authentication authentication) {

@@ -281,7 +281,7 @@ class CabinetApplicationTests {
         String id = extraire(creer(jourOuvre(1), "15:00:00"), "id");
         Long idMedecin = users.findByEmailIgnoreCase("test.medecin@casafami.test").orElseThrow().getId();
         mvc.perform(put("/api/rdv/" + id + "/terminer").header("Authorization", adminToken)).andExpect(status().isBadRequest()); // pas encore confirmé
-        mvc.perform(put("/api/rdv/" + id + "/confirmer").header("Authorization", secretaireToken)).andExpect(status().isForbidden());
+        mvc.perform(put("/api/rdv/" + id + "/confirmer").header("Authorization", secretaireToken)).andExpect(status().isBadRequest());   // la secrétaire confirme aussi, mais il faut d’abord attribuer
         // un médecin ne peut pas s'attribuer lui-même un rendez-vous : c'est le super administrateur qui décide
         mvc.perform(put("/api/rdv/" + id + "/confirmer").header("Authorization", medecinToken)).andExpect(status().isForbidden());
         mvc.perform(put("/api/rdv/" + id + "/confirmer").header("Authorization", adminToken)).andExpect(status().isBadRequest()); // il faut d'abord l'attribuer

@@ -81,6 +81,16 @@ public class RendezVous {
     @Column(name = "personnel_confirme_le")
     private LocalDateTime personnelConfirmeLe;
 
+    /** La personne qui a décliné ce rendez-vous (il n'est alors plus attribué à personne) : son nom, le moment et la raison. Effacés dès qu'on l'attribue à quelqu'un d'autre. */
+    @Column(name = "decline_par", length = 100)
+    private String declinePar;
+
+    @Column(name = "decline_le")
+    private LocalDateTime declineLe;
+
+    @Column(name = "decline_motif", length = 300)
+    private String declineMotif;
+
     /** Patient reçu au cabinet sans rendez-vous (consultation immédiate) : confirmé et accepté dès la saisie. */
     @Column(name = "sans_rendez_vous", columnDefinition = "boolean default false")
     private Boolean sansRendezVous = false;

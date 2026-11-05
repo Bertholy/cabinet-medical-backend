@@ -30,4 +30,8 @@ public class ParametresCabinet {
     /** Le personnel soignant a reçu le droit de confirmer ses propres rendez-vous (mise à niveau unique). */
     @Column(name = "droits_personnel_rdv_migres")
     private Boolean droitsPersonnelRdvMigres = false;
+
+    /** La secrétaire a reçu le droit de confirmer les rendez-vous acceptés par le personnel (mise à niveau unique). */
+    @Column(name = "droits_secretaire_confirmer_migres")
+    private Boolean droitsSecretaireConfirmerMigres = false;
 }

@@ -239,14 +239,15 @@ class PermissionsTests extends BaseApiTest {
         long medecinId = idDe("test.medecin@casafami.test");
         String attribution = "{\"praticienId\":" + medecinId + "}";
 
-        // par défaut, la secrétaire attribue les rendez-vous mais ne les confirme pas définitivement (un médecin, sans ce droit, ne peut pas attribuer)
+        // par défaut, la secrétaire attribue les rendez-vous ET les confirme (un médecin, sans ce droit, ne peut pas attribuer)
         mvc.perform(put("/api/rdv/" + id + "/praticien").header("Authorization", medecin).contentType(MediaType.APPLICATION_JSON).content(attribution)).andExpect(status().isForbidden());
         mvc.perform(put("/api/rdv/" + id + "/praticien").header("Authorization", secretaire).contentType(MediaType.APPLICATION_JSON).content(attribution)).andExpect(status().isOk());
-        mvc.perform(put("/api/rdv/" + id + "/confirmer").header("Authorization", secretaire)).andExpect(status().isForbidden());
-
-        // le super administrateur lui délègue aussi la confirmation finale
-        definirRole("SECRETAIRE", Permissions.RDV_VOIR, Permissions.RDV_ATTRIBUER, Permissions.RDV_CONFIRMER);
         mvc.perform(put("/api/rdv/" + id + "/confirmer").header("Authorization", secretaire)).andExpect(status().isConflict()); // le médecin n'a pas encore accepté
+
+        // le super administrateur peut lui retirer la confirmation finale, puis la lui rendre
+        definirRole("SECRETAIRE", Permissions.RDV_VOIR, Permissions.RDV_ATTRIBUER);
+        mvc.perform(put("/api/rdv/" + id + "/confirmer").header("Authorization", secretaire)).andExpect(status().isForbidden());
+        definirRole("SECRETAIRE", Permissions.RDV_VOIR, Permissions.RDV_ATTRIBUER, Permissions.RDV_CONFIRMER);
         mvc.perform(put("/api/rdv/" + id + "/accepter").header("Authorization", medecin)).andExpect(status().isOk());
         mvc.perform(put("/api/rdv/" + id + "/confirmer").header("Authorization", secretaire)).andExpect(status().isOk()).andExpect(jsonPath("$.statut").value("CONFIRME"));
     }

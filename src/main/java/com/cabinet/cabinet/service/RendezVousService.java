@@ -171,10 +171,10 @@ public class RendezVousService {
     // ============ LISTER TOUS LES RDV ============
     @Transactional(readOnly = true)
     public List<RendezVousResponseDTO> getAllRendezVous() {
-        return rendezVousRepository.findBySupprimeFalse()
+        return avecHistorique(rendezVousRepository.findBySupprimeFalse()
                 .stream()
                 .map(this::toResponseDTO)
-                .toList();
+                .toList());
     }
 
     /** Ajoute à chaque rendez-vous : « nouveau » ou « ancien » client, rang du passage et nombre total de passages (même nom et même numéro, voir ClientHistorique). */
@@ -510,10 +510,10 @@ public class RendezVousService {
     // ============ RDV PAR STATUT (pour le médecin) ============
     @Transactional(readOnly = true)
     public List<RendezVousResponseDTO> getRendezVousParStatut(StatutRDV statut) {
-        return rendezVousRepository.findByStatut(statut)
+        return avecHistorique(rendezVousRepository.findByStatut(statut)
                 .stream()
                 .map(this::toResponseDTO)
-                .toList();
+                .toList());
     }
 
     // ============ « MES PATIENTS » : les rendez-vous confiés à la personne connectée ============
@@ -521,7 +521,7 @@ public class RendezVousService {
     @Transactional(readOnly = true)
     public List<RendezVousResponseDTO> getMesPatients(String emailActeur) {
         Utilisateur acteur = acteur(emailActeur);
-        return rendezVousRepository.findAttribuesA(acteur.getId(), LocalDate.now(CABINET_ZONE).minusMonths(6)).stream().map(this::toResponseDTO).toList();
+        return avecHistorique(rendezVousRepository.findAttribuesA(acteur.getId(), LocalDate.now(CABINET_ZONE).minusMonths(6)).stream().map(this::toResponseDTO).toList());
     }
 
     /** Un rendez-vous précis (page ouverte depuis une notification). Un praticien ne voit que les siens ou ceux qui ne sont pas encore attribués. */
@@ -534,7 +534,7 @@ public class RendezVousService {
         if (praticien && rdv.getPraticien() != null && !rdv.getPraticien().getId().equals(acteur.getId())) {
             throw new org.springframework.security.access.AccessDeniedException("Ce rendez-vous est confié à une autre personne.");
         }
-        return toResponseDTO(rdv);
+        return avecHistorique(List.of(toResponseDTO(rdv))).get(0);   // « nouveau » ou « ancien » patient, affiché sur la demande à traiter
     }
 
     // ============ CONFIRMER UN RDV : deux confirmations ============
@@ -574,7 +574,10 @@ public class RendezVousService {
         RendezVous updated = rendezVousRepository.save(rdv);
         audit.log("RDV_CONFIRME", "RendezVous", id, rdv.getNomClient() + " — " + rdv.getDateRdv() + " " + rdv.getHeureRdv()
                 + (rdv.getPraticien() == null ? "" : " — avec " + rdv.getPraticien().getNom()));
-        notifications.notifier(rdv.getPraticien(), "RDV_CONFIRME", "Rendez-vous confirmé", rdv, "Le cabinet a confirmé ce rendez-vous", acteur.getNom());
+        // la personne attribuée est prévenue que le cabinet a confirmé, sauf si c'est elle qui vient de le confirmer
+        if (rdv.getPraticien() != null && !rdv.getPraticien().getId().equals(acteur.getId())) {
+            notifications.notifier(rdv.getPraticien(), "RDV_CONFIRME", "Rendez-vous confirmé", rdv, "Le cabinet a confirmé ce rendez-vous", acteur.getNom());
+        }
 
         // Envoyer SMS au client (confirmation)
         String message = "Votre RDV du " + updated.getDateRdv()
@@ -585,7 +588,11 @@ public class RendezVousService {
         return toResponseDTO(updated);
     }
 
-    /** La personne à qui le rendez-vous a été attribué l'accepte : tous les super administrateurs en sont prévenus. */
+    /**
+     * La personne à qui le rendez-vous a été attribué l'accepte : la réception est prévenue pour le confirmer au patient (super administrateurs et personnes
+     * qui ont le droit de confirmer sans être du personnel soignant, la secrétaire par défaut). Si elle le confirme elle-même, elle l'accepte du même coup
+     * et personne n'est prévenu (voir confirmerRendezVous).
+     */
     @Transactional
     public RendezVousResponseDTO accepterRendezVous(Long id, String emailActeur) {
         RendezVous rdv = rendezVousRepository.findByIdAndSupprimeFalse(id)
@@ -599,8 +606,38 @@ public class RendezVousService {
         rdv.setPersonnelConfirmeLe(LocalDateTime.now(CABINET_ZONE));
         RendezVousResponseDTO saved = toResponseDTO(rendezVousRepository.save(rdv));
         audit.log("RDV_ACCEPTE_PAR_PERSONNEL", "RendezVous", id, rdv.getNomClient() + " — accepté par " + acteur.getNom());
-        for (Utilisateur admin : utilisateurRepository.findByRoleIn(List.of(Role.SUPER_ADMIN))) {
-            notifications.notifier(admin, "RDV_ACCEPTE", "Attribution acceptée", rdv, acteur.getNom() + " a accepté ce rendez-vous", acteur.getNom());
+        for (Utilisateur destinataire : receptionQuiConfirme(acteur)) {
+            String lien = destinataire.getRole() == Role.SECRETAIRE ? "/espace/secretariat?rdv=" + rdv.getId() : null;
+            notifications.notifier(destinataire, "RDV_ACCEPTE", "Attribution acceptée", rdv, acteur.getNom() + " a accepté ce rendez-vous : à confirmer au patient", acteur.getNom(), lien);
+        }
+        return saved;
+    }
+
+    /**
+     * La personne à qui le rendez-vous a été attribué le décline : il n'est plus attribué à personne (son créneau est libéré pour elle), et la réception
+     * (super administrateurs et personnes qui ont le droit d'attribuer sans être du personnel soignant, la secrétaire par défaut) est prévenue pour le confier à quelqu'un d'autre.
+     */
+    @Transactional
+    public RendezVousResponseDTO declinerRendezVous(Long id, String emailActeur, String motif) {
+        RendezVous rdv = rendezVousRepository.findByIdAndSupprimeFalse(id)
+                .orElseThrow(() -> new RendezVousIntrouvableException("Rendez-vous introuvable avec l'id : " + id));
+        Utilisateur acteur = acteur(emailActeur);
+        verifierQueLeRdvMEstAttribue(rdv, acteur);
+        if (rdv.getStatut() != StatutRDV.EN_ATTENTE) {
+            throw new StatutInvalideException("Seul un rendez-vous en cours peut être décliné : celui-ci est " + rdv.getStatut().name().toLowerCase());
+        }
+        String raison = motif == null || motif.isBlank() ? null : motif.trim();
+        rdv.setPraticien(null);
+        rdv.setPersonnelConfirmeLe(null);
+        rdv.setDeclinePar(acteur.getNom());
+        rdv.setDeclineLe(LocalDateTime.now(CABINET_ZONE));
+        rdv.setDeclineMotif(raison);
+        RendezVousResponseDTO saved = toResponseDTO(rendezVousRepository.save(rdv));
+        audit.log("RDV_DECLINE_PAR_PERSONNEL", "RendezVous", id, rdv.getNomClient() + " — décliné par " + acteur.getNom() + (raison == null ? "" : " (" + raison + ")"));
+        for (Utilisateur destinataire : receptionQuiAttribue(acteur)) {
+            String lien = destinataire.getRole() == Role.SECRETAIRE ? "/espace/secretariat?rdv=" + rdv.getId() : null;
+            notifications.notifier(destinataire, "RDV_DECLINE", "Rendez-vous décliné", rdv,
+                    acteur.getNom() + " a décliné ce rendez-vous" + (raison == null ? "" : " (" + raison + ")") + " : à confier à une autre personne", acteur.getNom(), lien);
         }
         return saved;
     }
@@ -641,6 +678,28 @@ public class RendezVousService {
             String lienPropre = lien != null ? lien : (destinataire.getRole() == Role.SECRETAIRE ? "/espace/secretariat?rdv=" + rdv.getId() : null);
             notifications.notifier(destinataire, type, titre, rdv, phrase, origine, lienPropre);
         }
+    }
+
+    /** Ceux qui confirment les rendez-vous pour le cabinet : les super administrateurs, et les personnes qui ont le droit de confirmer sans être du personnel soignant (la secrétaire). L'acteur n'en fait pas partie. */
+    private List<Utilisateur> receptionQuiConfirme(Utilisateur acteur) {
+        java.util.Map<Long, Utilisateur> destinataires = new java.util.LinkedHashMap<>();
+        for (Utilisateur admin : utilisateurRepository.findByRoleIn(List.of(Role.SUPER_ADMIN))) destinataires.put(admin.getId(), admin);
+        for (Utilisateur u : utilisateurRepository.findByRoleIn(com.cabinet.cabinet.security.PermissionService.ROLES_REGLABLES)) {
+            if (u.getId().equals(acteur.getId()) || ROLES_PRATICIENS.contains(u.getRole())) continue;
+            if (permissions.de(u).contains(com.cabinet.cabinet.security.Permissions.RDV_CONFIRMER)) destinataires.put(u.getId(), u);
+        }
+        return new java.util.ArrayList<>(destinataires.values());
+    }
+
+    /** Ceux qui confient les rendez-vous au personnel : les super administrateurs, et les personnes qui ont le droit d'attribuer sans être du personnel soignant (la secrétaire). L'acteur n'en fait pas partie. */
+    private List<Utilisateur> receptionQuiAttribue(Utilisateur acteur) {
+        java.util.Map<Long, Utilisateur> destinataires = new java.util.LinkedHashMap<>();
+        for (Utilisateur admin : utilisateurRepository.findByRoleIn(List.of(Role.SUPER_ADMIN))) destinataires.put(admin.getId(), admin);
+        for (Utilisateur u : utilisateurRepository.findByRoleIn(com.cabinet.cabinet.security.PermissionService.ROLES_REGLABLES)) {
+            if (u.getId().equals(acteur.getId()) || ROLES_PRATICIENS.contains(u.getRole())) continue;
+            if (permissions.de(u).contains(com.cabinet.cabinet.security.Permissions.RDV_ATTRIBUER)) destinataires.put(u.getId(), u);
+        }
+        return new java.util.ArrayList<>(destinataires.values());
     }
 
     private List<Utilisateur> destinatairesDesRendezVous(String emailActeur) {
@@ -684,6 +743,7 @@ public class RendezVousService {
         }
         rdv.setPraticien(nouveau);
         rdv.setPersonnelConfirmeLe(null);
+        rdv.setDeclinePar(null); rdv.setDeclineLe(null); rdv.setDeclineMotif(null);   // le refus précédent est réglé
         notifications.notifier(nouveau, "RDV_ATTRIBUE", "Nouveau rendez-vous attribué", rdv, "Un rendez-vous vous est confié", acteur.getNom());
         if (ancien != null) notifications.notifier(ancien, "RDV_RETIRE", "Rendez-vous retiré", rdv, "Ce rendez-vous ne vous est plus attribué", acteur.getNom());
         audit.log("RDV_ATTRIBUE", "RendezVous", rdv.getId(), rdv.getNomClient() + " → " + nouveau.getNom() + (ancien == null ? "" : " (avant : " + ancien.getNom() + ")"));
@@ -1059,6 +1119,11 @@ public class RendezVousService {
         dto.setPraticienId(rdv.getPraticien() == null ? null : rdv.getPraticien().getId());
         dto.setPraticienNom(rdv.getPraticien() == null ? null : rdv.getPraticien().getNom());
         dto.setCleSuivi(rdv.getCleSuivi());
+        if (rdv.getPraticien() == null && rdv.getDeclineLe() != null) {
+            dto.setDeclinePar(rdv.getDeclinePar());
+            dto.setDeclineLe(rdv.getDeclineLe());
+            dto.setDeclineMotif(rdv.getDeclineMotif());
+        }
         dto.setPersonnelConfirme(rdv.getPersonnelConfirmeLe() != null);
         dto.setPersonnelConfirmeLe(rdv.getPersonnelConfirmeLe());
         dto.setDateRdv(rdv.getDateRdv());

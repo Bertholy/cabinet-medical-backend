@@ -107,7 +107,7 @@ public class SecurityConfig {
                 .requestMatchers(HttpMethod.GET, "/api/rdv/statut/**", "/api/rendez-vous/statut/**").hasAnyRole("SUPER_ADMIN", "MEDECIN")
                 .requestMatchers(HttpMethod.PUT, "/api/rdv/*/praticien", "/api/rendez-vous/*/praticien").access(permissions.exige(Permissions.RDV_ATTRIBUER))
                 .requestMatchers(HttpMethod.PUT, "/api/rdv/*/confirmer", "/api/rendez-vous/*/confirmer").access(permissions.exige(Permissions.RDV_CONFIRMER))
-                .requestMatchers(HttpMethod.PUT, "/api/rdv/*/accepter", "/api/rendez-vous/*/accepter").access(permissions.exige(Permissions.RDV_ACCEPTER))
+                .requestMatchers(HttpMethod.PUT, "/api/rdv/*/accepter", "/api/rendez-vous/*/accepter", "/api/rdv/*/decliner", "/api/rendez-vous/*/decliner").access(permissions.exige(Permissions.RDV_ACCEPTER))
                 .requestMatchers(HttpMethod.PUT, "/api/rdv/*/terminer", "/api/rendez-vous/*/terminer").access(permissions.exige(Permissions.RDV_TERMINER))
                 .requestMatchers(HttpMethod.GET, "/api/rdv", "/api/rdv/**", "/api/rendez-vous", "/api/rendez-vous/**").access(permissions.exige(Permissions.RDV_VOIR))
                 .requestMatchers("/api/rdv/**", "/api/rendez-vous/**").access(permissions.exige(Permissions.RDV_MODIFIER))

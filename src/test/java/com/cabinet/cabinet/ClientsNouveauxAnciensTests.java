@@ -152,6 +152,18 @@ class ClientsNouveauxAnciensTests extends BaseApiTest {
     }
 
     @Test
+    void la_demande_a_traiter_dit_nouveau_ou_ancien() throws Exception {
+        donnees();
+        Long idAncien = rdvs.findAll().stream().filter(r -> "rasoa  hanta".equals(r.getNomClient())).findFirst().orElseThrow().getId();
+        Long idNouveau = rdvs.findAll().stream().filter(r -> "Rakoto Jean".equals(r.getNomClient()) && r.getStatut() == StatutRDV.CONFIRME).findFirst().orElseThrow().getId();
+        // un rendez-vous précis (page ouverte depuis une notification) porte lui aussi le voyant
+        mvc.perform(get("/api/rdv/" + idAncien).header("Authorization", secretaire))
+                .andExpect(status().isOk()).andExpect(jsonPath("$.nouveauClient").value(false)).andExpect(jsonPath("$.passage").value(2)).andExpect(jsonPath("$.passagesTotal").value(2));
+        mvc.perform(get("/api/rdv/" + idNouveau).header("Authorization", secretaire))
+                .andExpect(status().isOk()).andExpect(jsonPath("$.nouveauClient").value(true)).andExpect(jsonPath("$.passage").value(1));
+    }
+
+    @Test
     void la_liste_se_filtre_par_statut_et_par_recherche() throws Exception {
         donnees();
         mvc.perform(get("/api/patients/liste").param("statut", "NOUVEAU").header("Authorization", secretaire))

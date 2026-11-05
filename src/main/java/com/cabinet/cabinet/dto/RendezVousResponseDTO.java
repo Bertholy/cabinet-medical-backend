@@ -28,6 +28,10 @@ public class RendezVousResponseDTO {
     /** La personne attribuée a accepté le rendez-vous. */
     private boolean personnelConfirme;
     private LocalDateTime personnelConfirmeLe;
+    /** Renseignés seulement quand la personne attribuée a décliné le rendez-vous et qu'il attend d'être confié à quelqu'un d'autre. */
+    private String declinePar;
+    private LocalDateTime declineLe;
+    private String declineMotif;
     private String clientAccessToken;
     /** Clé de suivi du rendez-vous (voir RendezVous.cleSuivi). */
     private String cleSuivi;

@@ -28,7 +28,7 @@ public class Notification {
     @ToString.Exclude
     private Utilisateur destinataire;
 
-    /** RDV_ATTRIBUE, RDV_RETIRE, RDV_ANNULE, RDV_DEPLACE, RDV_ACCEPTE, RDV_CONFIRME, MOT_DE_PASSE, SAUVEGARDE_ECHEC… */
+    /** RDV_ATTRIBUE, RDV_RETIRE, RDV_ANNULE, RDV_DEPLACE, RDV_ACCEPTE, RDV_DECLINE, RDV_CONFIRME, MOT_DE_PASSE, SAUVEGARDE_ECHEC… */
     @Column(nullable = false, length = 30)
     private String type;
 
